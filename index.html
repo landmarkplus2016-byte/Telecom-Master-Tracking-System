@@ -1,0 +1,440 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+  <meta name="theme-color" content="#1a2e4a">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="default">
+  <meta name="apple-mobile-web-app-title" content="Telecom Tracker">
+  <title>Telecom Tracking System</title>
+  <link rel="manifest" href="manifest.json">
+
+  <!-- ── Fonts ────────────────────────────────────────────── -->
+  <!-- Barlow Condensed: headings, labels, badges             -->
+  <!-- Barlow: body text, inputs, descriptions                -->
+  <!-- JetBrains Mono: IDs, codes, data values, timestamps   -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;600;700&family=Barlow:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+
+  <!-- ── Handsontable Community Edition ───────────────────── -->
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/handsontable@14.3.0/dist/handsontable.full.min.css">
+
+  <!-- ── App CSS ───────────────────────────────────────────── -->
+  <link rel="stylesheet" href="css/main.css">
+  <link rel="stylesheet" href="css/grid.css">
+  <link rel="stylesheet" href="css/forms.css">
+  <link rel="stylesheet" href="css/filters.css">
+
+  <!-- ── Critical: Loading screen inline ──────────────────── -->
+  <!-- Inlined so the loading screen renders before CSS loads -->
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    /* ─────────────────────────────────────────────────────
+       Design system — light navy professional
+       Carry these exact variables into all CSS files.
+       ───────────────────────────────────────────────────── */
+    :root {
+      /* Backgrounds */
+      --bg-base:        #f0f2f5;   /* page background — cool light grey */
+      --bg-surface:     #ffffff;   /* cards, panels, modals */
+      --bg-header:      #1a2e4a;   /* top header bar — navy */
+      --bg-navy:        #1a2e4a;   /* primary navy */
+      --bg-navy-deep:   #0f1e30;   /* deeper navy for hover/active */
+      --bg-navy-mid:    #243d5c;   /* mid-navy for secondary elements */
+
+      /* Borders */
+      --border:         #d0d7e2;   /* standard divider on light bg */
+      --border-navy:    #2a4060;   /* divider on navy surfaces */
+
+      /* Accent — gold, used sparingly */
+      --accent:         #c9973a;   /* warm gold — works on both navy + white */
+      --accent-bright:  #e8b04a;   /* hover state / stronger hit */
+      --accent-dim:     rgba(201, 151, 58, 0.15);
+
+      /* Text */
+      --text-primary:   #1a2e4a;   /* dark navy for body text on light bg */
+      --text-secondary: #5a6a80;   /* muted on light bg */
+      --text-on-navy:   #e8edf3;   /* primary text on navy surfaces */
+      --text-muted-navy:#8fa5bf;   /* muted text on navy surfaces */
+
+      /* Semantic */
+      --color-lock:     #e8edf3;
+      --color-conflict: #c8800a;
+      --color-success:  #2a7a4a;
+      --color-error:    #c0392b;
+
+      /* Typography */
+      --font-display:   'Barlow Condensed', sans-serif;
+      --font-body:      'Barlow', sans-serif;
+      --font-mono:      'JetBrains Mono', monospace;
+    }
+
+    html, body {
+      height: 100%;
+      background: var(--bg-base);
+      color: var(--text-primary);
+      font-family: var(--font-body);
+      overflow: hidden;
+    }
+
+    /* ── Loading screen ─────────────────────────────────── */
+    #screen-loading {
+      position: fixed;
+      inset: 0;
+      /* Navy background with a subtle dot-grid texture */
+      background-color: var(--bg-navy);
+      background-image: radial-gradient(circle, rgba(255,255,255,0.07) 1px, transparent 1px);
+      background-size: 28px 28px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      z-index: 9999;
+    }
+
+    .loading-frame {
+      position: relative;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 6px;
+      padding: 40px 56px 36px;
+      /* White card floated on the navy background */
+      background: var(--bg-surface);
+      border: 1px solid var(--border);
+      overflow: hidden;
+      /* Subtle drop shadow for depth on the navy field */
+      box-shadow: 0 8px 40px rgba(10, 20, 35, 0.35);
+    }
+
+    /* Gold corner accents */
+    .loading-frame::before,
+    .loading-frame::after {
+      content: '';
+      position: absolute;
+      width: 12px;
+      height: 12px;
+      border-color: var(--accent);
+      border-style: solid;
+    }
+    .loading-frame::before {
+      top: -1px; left: -1px;
+      border-width: 2px 0 0 2px;
+    }
+    .loading-frame::after {
+      bottom: -1px; right: -1px;
+      border-width: 0 2px 2px 0;
+    }
+
+    /* Scanning beam — navy-tinted, sweeps across the white card */
+    .scan-beam {
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 60px;
+      height: 100%;
+      background: linear-gradient(90deg,
+        transparent 0%,
+        rgba(26, 46, 74, 0.04) 40%,
+        rgba(26, 46, 74, 0.10) 50%,
+        rgba(26, 46, 74, 0.04) 60%,
+        transparent 100%);
+      animation: scan 2.4s ease-in-out infinite;
+      pointer-events: none;
+    }
+
+    @keyframes scan {
+      0%   { transform: translateX(-100%); }
+      100% { transform: translateX(calc(100vw + 100%)); }
+    }
+
+    .loading-eyebrow {
+      font-family: var(--font-mono);
+      font-size: 9px;
+      letter-spacing: 0.22em;
+      text-transform: uppercase;
+      color: var(--accent);
+      opacity: 0.85;
+    }
+
+    .loading-title {
+      font-family: var(--font-display);
+      font-weight: 700;
+      font-size: 42px;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      color: var(--bg-navy);
+      line-height: 1;
+    }
+
+    .loading-subtitle {
+      font-family: var(--font-display);
+      font-weight: 500;
+      font-size: 13px;
+      letter-spacing: 0.28em;
+      text-transform: uppercase;
+      color: var(--text-secondary);
+    }
+
+    /* Gold rule between title and status */
+    .loading-rule {
+      width: 100%;
+      height: 1px;
+      background: linear-gradient(90deg, transparent, var(--accent), transparent);
+      margin: 14px 0 10px;
+      opacity: 0.6;
+    }
+
+    .loading-status {
+      font-family: var(--font-mono);
+      font-size: 10px;
+      letter-spacing: 0.16em;
+      text-transform: uppercase;
+      color: var(--text-secondary);
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    /* Pulsing gold dot */
+    .loading-dot {
+      width: 6px;
+      height: 6px;
+      border-radius: 50%;
+      background: var(--accent);
+      animation: pulse-dot 1.4s ease-in-out infinite;
+      flex-shrink: 0;
+    }
+
+    @keyframes pulse-dot {
+      0%, 100% { opacity: 1; transform: scale(1); }
+      50%       { opacity: 0.3; transform: scale(0.6); }
+    }
+
+    /* Animated ellipsis for status text */
+    .loading-ellipsis span {
+      animation: blink-char 1.4s step-start infinite;
+    }
+    .loading-ellipsis span:nth-child(2) { animation-delay: 0.2s; }
+    .loading-ellipsis span:nth-child(3) { animation-delay: 0.4s; }
+
+    @keyframes blink-char {
+      0%, 60%, 100% { opacity: 1; }
+      30%            { opacity: 0; }
+    }
+
+    /* ── Utility: hide/show screens ─────────────────────── */
+    [hidden] { display: none !important; }
+  </style>
+</head>
+
+<body>
+
+<!-- ════════════════════════════════════════════════════════ -->
+<!-- SCREEN: Loading                                          -->
+<!-- Shown immediately on app open. app.js hides it once     -->
+<!-- auth state is determined and the app is ready.          -->
+<!-- ════════════════════════════════════════════════════════ -->
+<div id="screen-loading">
+  <div class="loading-frame">
+    <div class="scan-beam"></div>
+    <span class="loading-eyebrow">Telecom Department</span>
+    <h1 class="loading-title">Tracking System</h1>
+    <p class="loading-subtitle">Coordinator Workspace</p>
+    <div class="loading-rule"></div>
+    <div class="loading-status">
+      <span class="loading-dot"></span>
+      <span id="loading-status-text">Initializing<span class="loading-ellipsis"><span>.</span><span>.</span><span>.</span></span></span>
+    </div>
+  </div>
+</div>
+
+
+<!-- ════════════════════════════════════════════════════════ -->
+<!-- SCREEN: First-launch Setup                              -->
+<!-- config.js shows this when no Apps Script URL is stored. -->
+<!-- User pastes their deployed Web App URL here.            -->
+<!-- ════════════════════════════════════════════════════════ -->
+<div id="screen-setup" hidden>
+  <!-- Populated by js/config.js -->
+</div>
+
+
+<!-- ════════════════════════════════════════════════════════ -->
+<!-- SCREEN: Login                                           -->
+<!-- auth.js shows this after setup is complete.             -->
+<!-- Contains: name dropdown + personal code field.          -->
+<!-- ════════════════════════════════════════════════════════ -->
+<div id="screen-login" hidden>
+  <!-- Populated by js/auth.js -->
+</div>
+
+
+<!-- ════════════════════════════════════════════════════════ -->
+<!-- SCREEN: Main Application                                -->
+<!-- app.js shows this after successful authentication.      -->
+<!-- ════════════════════════════════════════════════════════ -->
+<div id="screen-app" hidden>
+
+  <!-- ── Header ─────────────────────────────────────────── -->
+  <header id="app-header">
+
+    <!-- Logo + role badge -->
+    <div id="app-logo">
+      <!-- js/auth.js injects: app wordmark + role badge -->
+    </div>
+
+    <!-- Global search bar (js/filters.js) -->
+    <div id="global-search-wrap">
+      <!-- js/filters.js injects the search input -->
+    </div>
+
+    <!-- Toolbar: action buttons (role-gated by js/app.js) -->
+    <div id="toolbar-actions">
+      <!-- Buttons injected by js/app.js after role is known:  -->
+      <!--   [Filter]  [Export]  [Backup Now]                  -->
+      <!--   [Reconcile] — invoicing + manager only            -->
+      <!--   [⚙ Manager] — manager only                        -->
+    </div>
+
+    <!-- Presence avatars (js/sheets.js — Stage 3) -->
+    <div id="presence-bar">
+      <!-- Avatar bubbles injected by js/sheets.js -->
+    </div>
+
+  </header><!-- /#app-header -->
+
+
+  <!-- ── Body ───────────────────────────────────────────── -->
+  <div id="app-body">
+
+    <!-- Filter panel (js/filters.js — Stage 4)             -->
+    <!-- Slides in from top when "Filter" button is toggled  -->
+    <aside id="filter-panel" aria-hidden="true">
+      <!-- Column filter controls injected by js/filters.js -->
+    </aside>
+
+    <!-- Handsontable mount point (js/grid.js) -->
+    <div id="grid-container">
+      <!-- Handsontable instance attached here by js/grid.js -->
+    </div>
+
+  </div><!-- /#app-body -->
+
+
+  <!-- ── Status bar ─────────────────────────────────────── -->
+  <footer id="app-statusbar">
+
+    <!-- Sync / offline indicator (js/offline.js) -->
+    <div id="sync-indicator">
+      <!-- js/offline.js injects sync state:                 -->
+      <!--   ● N changes pending sync                        -->
+      <!--   ✓ All synced  (disappears after 3s)             -->
+    </div>
+
+    <!-- Cold-start / connecting indicator (js/sheets.js) -->
+    <div id="cold-start-indicator" hidden>
+      <!-- js/sheets.js shows "Waking up..." on first cold call -->
+    </div>
+
+    <!-- Last sync timestamp -->
+    <div id="last-sync-time">
+      <!-- js/sheets.js updates this after every successful sync -->
+    </div>
+
+    <!-- Row count for current view -->
+    <div id="row-count">
+      <!-- js/grid.js updates this when filter/data changes -->
+    </div>
+
+  </footer><!-- /#app-statusbar -->
+
+</div><!-- /#screen-app -->
+
+
+<!-- ════════════════════════════════════════════════════════ -->
+<!-- MODALS & OVERLAYS (shared, all screens)                  -->
+<!-- ════════════════════════════════════════════════════════ -->
+
+<!-- Backdrop (js/app.js manages open/close) -->
+<div id="modal-overlay" hidden aria-hidden="true"></div>
+
+<!-- Generic modal container                                  -->
+<!-- Each feature injects its own content here:              -->
+<!--   js/delete.js   → delete confirm + Clear All Data      -->
+<!--   js/grid.js     → row-lock message                     -->
+<!--   js/reconcile.js→ TSR reconciliation panel             -->
+<!--   js/offline.js  → conflict resolution panel            -->
+<!--   js/export.js   → export options                       -->
+<div id="modal-container" hidden role="dialog" aria-modal="true">
+  <!-- Content injected dynamically by feature modules -->
+</div>
+
+
+<!-- ════════════════════════════════════════════════════════ -->
+<!-- PWA UPDATE BANNER (service-worker.js)                   -->
+<!-- Shown when a new version is ready to install.           -->
+<!-- ════════════════════════════════════════════════════════ -->
+<div id="update-banner" hidden>
+  <span id="update-banner-text">A new update is available</span>
+  <button id="update-banner-btn" type="button">Update Now</button>
+</div>
+
+
+<!-- ════════════════════════════════════════════════════════ -->
+<!-- SCRIPTS                                                  -->
+<!-- Load order matters:                                      -->
+<!--   1. Handsontable (global HOT dependency)               -->
+<!--   2. Static data (dropdowns fallback)                   -->
+<!--   3. Infrastructure modules (config → auth → sheets)    -->
+<!--   4. Business logic (offline → id → pricing → grid)     -->
+<!--   5. UI features (filters → delete → export → reconcile)-->
+<!--   6. Background services (backup)                       -->
+<!--   7. app.js last — wires everything together            -->
+<!-- ════════════════════════════════════════════════════════ -->
+
+<!-- Handsontable Community Edition -->
+<script src="https://cdn.jsdelivr.net/npm/handsontable@14.3.0/dist/handsontable.full.min.js"></script>
+
+<!-- Fallback dropdown data (must load before auth/grid) -->
+<script src="data/dropdowns.js"></script>
+
+<!-- Infrastructure -->
+<script src="js/config.js"></script>
+<script src="js/auth.js"></script>
+<script src="js/sheets.js"></script>
+
+<!-- Business logic -->
+<script src="js/offline.js"></script>
+<script src="js/id.js"></script>
+<script src="js/pricing.js"></script>
+<script src="js/grid.js"></script>
+
+<!-- UI features -->
+<script src="js/filters.js"></script>
+<script src="js/delete.js"></script>
+<script src="js/export.js"></script>
+<script src="js/reconcile.js"></script>
+
+<!-- Background services -->
+<script src="js/backup.js"></script>
+
+<!-- App init — must be last -->
+<script src="js/app.js"></script>
+
+<!-- ── Service Worker registration ──────────────────────── -->
+<script>
+  if ('serviceWorker' in navigator) {
+    window.addEventListener('load', function () {
+      navigator.serviceWorker.register('service-worker.js').catch(function (err) {
+        console.warn('Service worker registration failed:', err);
+      });
+    });
+  }
+</script>
+
+</body>
+</html>
