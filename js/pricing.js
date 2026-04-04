@@ -222,19 +222,19 @@ var Pricing = (function () {
    * Calculate the three derived numeric fields from the row values.
    *
    * Formula:
-   *   New Total Price = New Price × Actual Quantity × Distance Multiplier
-   *   LMP Portion     = New Total Price × LMP %
+   *   New Total Price    = New Price × Absolute Quantity
+   *   LMP Portion        = New Total Price × LMP %
    *   Contractor Portion = New Total Price × Contractor %
    *
-   * distanceRange — string from the Distance dropdown (e.g. "0Km - 100Km")
+   * absoluteQty — already the result of Actual Quantity × Distance Multiplier,
+   *               computed by grid.js _applyPricing before calling here.
    *
    * Returns { newTotalPrice, lmpPortion, contractorPortion }.
    */
-  function calculateTotals(newPrice, actualQty, contractor, distanceRange) {
-    var price    = parseFloat(newPrice)  || 0;
-    var qty      = parseFloat(actualQty) || 0;
-    var distMult = getDistanceMultiplier(distanceRange);
-    var total    = price * qty * distMult;
+  function calculateTotals(newPrice, absoluteQty, contractor) {
+    var price = parseFloat(newPrice)    || 0;
+    var qty   = parseFloat(absoluteQty) || 0;
+    var total = price * qty;
 
     var split      = getContractorSplit(contractor);
     var lmp        = total * (split.lmpPct        / 100);

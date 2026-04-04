@@ -37,18 +37,19 @@ var Grid = (function () {
     { key: 'vendor',                     label: 'Vendor',                    width: 130, type: 'dropdown' },
     { key: 'physical_site_id',           label: 'Physical Site ID',          width: 130, type: 'text'     },
     { key: 'logical_site_id',            label: 'Logical Site ID',           width: 130, type: 'text'     },
-    { key: 'site_option',                label: 'Site Option',               width: 100, type: 'dropdown' },
+    { key: 'site_option',                label: 'Site Option',               width: 100, type: 'text'     },
     { key: 'facing',                     label: 'Facing',                    width:  90, type: 'dropdown' },
     { key: 'region',                     label: 'Region',                    width: 100, type: 'dropdown' },
     { key: 'sub_region',                 label: 'Sub Region',                width: 110, type: 'dropdown' },
     { key: 'distance',                   label: 'Distance',                  width: 140, type: 'dropdown' },
-    { key: 'absolute_quantity',          label: 'Absolute Quantity',         width: 130, type: 'numeric'  },
+    // absolute_quantity is auto-calculated: actual_quantity × distance multiplier
+    { key: 'absolute_quantity',          label: 'Absolute Quantity',         width: 130, type: 'numeric',  readOnly: ['coordinator', 'invoicing', 'manager'] },
     { key: 'actual_quantity',            label: 'Actual Quantity',           width: 120, type: 'numeric'  },
     { key: 'general_stream',             label: 'General Stream',            width: 130, type: 'dropdown' },
     { key: 'task_name',                  label: 'Task Name',                 width: 200, type: 'dropdown' },
     { key: 'contractor',                 label: 'Contractor',                width: 130, type: 'dropdown' },
     { key: 'engineer_name',              label: "Engineer's Name",           width: 140, type: 'text'     },
-    { key: 'line_item',                  label: 'Line Item',                 width: 110, type: 'dropdown' },
+    { key: 'line_item',                  label: 'Line Item',                 width: 260, type: 'dropdown' },
     { key: 'new_price',                  label: 'New Price',                 width: 110, type: 'numeric',  numericFormat: { pattern: '$0,0.00' }, readOnly: ['coordinator', 'invoicing'] },
     { key: 'new_total_price',            label: 'New Total Price',           width: 130, type: 'numeric',  numericFormat: { pattern: '$0,0.00' }, readOnly: ['coordinator', 'invoicing', 'manager'] },
     { key: 'comments',                   label: 'Comments',                  width: 200, type: 'text'     },
@@ -161,17 +162,23 @@ var Grid = (function () {
    * configDropdowns — { field_key: [option, ...] } from Code.gs getConfigData()
    *                   Pass null or {} to use defaults only.
    */
-  function applyDropdowns(configDropdowns) {
-    // Start from a copy of the static defaults
-    var defaults = (typeof DROPDOWN_DEFAULTS !== 'undefined') ? DROPDOWN_DEFAULTS : {};
+  /**
+   * configDropdowns — { field_key: [option, ...] } from Config tab [DROPDOWNS] section
+   * priceList       — [{ version, lineItem, unitPrice }] from Config tab price tables
+   *                   Used to populate the line_item dropdown with all known line items.
+   *
+   * Rules:
+   *   - Config values completely replace DROPDOWN_DEFAULTS for that field
+   *   - Fields with type:'dropdown' in COLUMNS but no source get rendered as text
+   *     (handled in _initHot — see cfg.type override below)
+   *   - line_item is always populated from the price list, not from dropdown section
+   */
+  function applyDropdowns(configDropdowns, priceList) {
     _dropdownSources = {};
 
-    // Copy defaults first
-    Object.keys(defaults).forEach(function (key) {
-      _dropdownSources[key] = defaults[key].slice();
-    });
-
-    // Config values override defaults entirely (not merged) for each field
+    // Config values only — no hardcoded defaults mixed in.
+    // If the Config tab has no entry for a field, that field gets no source
+    // and _initHot will render it as plain text instead of a dropdown.
     var config = configDropdowns || {};
     Object.keys(config).forEach(function (key) {
       if (config[key] && config[key].length) {
@@ -179,11 +186,31 @@ var Grid = (function () {
       }
     });
 
-    console.log('[grid.js] applyDropdowns() — sources loaded for:',
-      Object.keys(_dropdownSources).join(', '));
+    // ── Populate line_item from price list ──────────────────
+    // Extract unique line item names in the order they appear.
+    var items = priceList || [];
+    if (items.length) {
+      var seen      = {};
+      var lineItems = [];
+      items.forEach(function (p) {
+        var li = String(p.lineItem || '').trim();
+        if (li && !seen[li]) { seen[li] = true; lineItems.push(li); }
+      });
+      if (lineItems.length) _dropdownSources['line_item'] = lineItems;
+    }
 
-    // If HOT is already initialised (e.g. applyDropdowns called after init),
-    // update the column sources in-place and re-render.
+    // ── distance fallback ────────────────────────────────────
+    // Always keep a usable distance list even without a [DISTANCE_MULTIPLIERS] section.
+    if (!_dropdownSources['distance']) {
+      var defaults = (typeof DROPDOWN_DEFAULTS !== 'undefined') ? DROPDOWN_DEFAULTS : {};
+      if (defaults['distance'] && defaults['distance'].length) {
+        _dropdownSources['distance'] = defaults['distance'].slice();
+      }
+    }
+
+    console.log('[grid.js] applyDropdowns() — sources:', Object.keys(_dropdownSources).join(', '));
+
+    // If HOT is already initialised update column sources in-place and re-render.
     if (_hot) {
       var columns = _hot.getSettings().columns;
       if (columns) {
@@ -329,11 +356,19 @@ var Grid = (function () {
         cfg.correctFormat = true;
       }
       if (col.type === 'dropdown') {
-        // Source is a live array reference — applyDropdowns() updates it in place.
-        // strict:false allows typing values not in the list (free-text fallback).
-        cfg.source = _dropdownSources[col.key] || [];
-        cfg.strict = false;
-        cfg.allowInvalid = true;
+        var src = _dropdownSources[col.key] || [];
+        if (src.length) {
+          // Has options from Config — render as dropdown.
+          // strict:false lets users type values not in the list.
+          cfg.type        = 'dropdown';
+          cfg.source      = src;
+          cfg.strict      = false;
+          cfg.allowInvalid = true;
+        } else {
+          // No options configured — fall back to plain text so the cell
+          // doesn't show an unusable empty dropdown arrow.
+          cfg.type = 'text';
+        }
       }
       return cfg;
     });
@@ -533,20 +568,18 @@ var Grid = (function () {
     var row        = _hot.getSourceDataAtRow(rowIdx) || {};
     var taskDate   = String(row.task_date   || '').trim();
     var lineItem   = String(row.line_item   || '').trim();
-    var actualQty  = row.actual_quantity;
+    var actualQty  = parseFloat(row.actual_quantity) || 0;
     var contractor = String(row.contractor  || '').trim();
     var distance   = String(row.distance    || '').trim();
 
     // ── Auto-fill new_price from price list (non-manager roles only) ──
-    // Managers can override new_price manually; for other roles the field
-    // is readOnly so any value here was set by pricing, not the user.
     if (_role !== 'manager') {
       var looked = Pricing.lookupPrice(lineItem, taskDate);
       if (looked !== null) {
         var cur = parseFloat(row.new_price) || 0;
         if (Math.abs(cur - looked) > 0.001) {
           _hot.setDataAtRowProp(rowIdx, 'new_price', looked, 'pricing');
-          row.new_price = looked; // keep local copy in sync for total calc below
+          row.new_price = looked;
         }
       }
     }
@@ -562,9 +595,19 @@ var Grid = (function () {
       }
     }
 
-    // ── Calculate derived totals ──────────────────────────────────
+    // ── Absolute Quantity = Actual Quantity × Distance Multiplier ──
+    var distMult    = Pricing.getDistanceMultiplier(distance);
+    var absoluteQty = actualQty * distMult;
+
+    // Only write if the value has actually changed (avoid thrashing)
+    var curAbsQty = parseFloat(row.absolute_quantity) || 0;
+    if (Math.abs(curAbsQty - absoluteQty) > 0.0001) {
+      _hot.setDataAtRowProp(rowIdx, 'absolute_quantity', absoluteQty || 0, 'pricing');
+    }
+
+    // ── Calculate derived totals (New Total Price = New Price × Absolute Qty) ──
     var newPrice = parseFloat(row.new_price) || 0;
-    var totals   = Pricing.calculateTotals(newPrice, actualQty, contractor, distance);
+    var totals   = Pricing.calculateTotals(newPrice, absoluteQty, contractor);
 
     _hot.setDataAtRowProp(rowIdx, 'new_total_price', totals.newTotalPrice, 'pricing');
 

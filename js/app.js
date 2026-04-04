@@ -69,12 +69,12 @@
     Sheets.fetchConfig(function (configResult) {
       if (configResult.success) {
         Pricing.init(configResult);
-        Grid.applyDropdowns(configResult.dropdowns || {});
+        Grid.applyDropdowns(configResult.dropdowns || {}, configResult.priceList || []);
       } else {
         // Non-fatal: both modules degrade gracefully with no config data
         console.warn('[app.js] fetchConfig failed:', configResult.error, '— pricing + dropdowns disabled');
         Pricing.init(null);
-        Grid.applyDropdowns({});
+        Grid.applyDropdowns({}, []);
       }
 
       // Init grid AFTER dropdowns are loaded so column sources are set
