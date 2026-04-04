@@ -115,7 +115,19 @@
     logoEl.innerHTML = [
       '<span class="app-wordmark">Telecom Tracker</span>',
       '<span class="role-badge ' + roleCls + '">' + roleLabel + '</span>',
+      '<span class="app-username">' + name + '</span>',
     ].join('');
+
+    // Logout button — right edge of header
+    var presenceBar = document.getElementById('presence-bar');
+    if (presenceBar && !document.getElementById('logout-btn')) {
+      var logoutBtn = document.createElement('button');
+      logoutBtn.id        = 'logout-btn';
+      logoutBtn.title     = 'Sign out';
+      logoutBtn.innerHTML = '&#x2197;&#xFE0E; Sign Out';
+      logoutBtn.addEventListener('click', _logout);
+      presenceBar.appendChild(logoutBtn);
+    }
 
     // Inject minimal header styles if not yet present
     if (!document.getElementById('app-header-styles')) {
@@ -183,6 +195,39 @@
           'flex: 1;',
           'overflow: hidden;',
         '}',
+        '.app-username {',
+          'font-family: var(--font-body);',
+          'font-size: 12px;',
+          'font-weight: 500;',
+          'color: var(--text-muted-navy);',
+          'white-space: nowrap;',
+          'margin-left: 4px;',
+        '}',
+        '#presence-bar {',
+          'display: flex;',
+          'align-items: center;',
+          'gap: 8px;',
+          'margin-left: auto;',
+        '}',
+        '#logout-btn {',
+          'height: 28px;',
+          'padding: 0 12px;',
+          'font-family: var(--font-display);',
+          'font-weight: 600;',
+          'font-size: 10px;',
+          'letter-spacing: 0.12em;',
+          'text-transform: uppercase;',
+          'background: transparent;',
+          'color: var(--text-muted-navy);',
+          'border: 1px solid var(--border-navy);',
+          'cursor: pointer;',
+          'transition: background 0.15s, color 0.15s;',
+          'white-space: nowrap;',
+        '}',
+        '#logout-btn:hover {',
+          'background: rgba(255,255,255,0.08);',
+          'color: var(--text-on-navy);',
+        '}',
         '#app-statusbar {',
           'display: flex;',
           'align-items: center;',
@@ -205,6 +250,11 @@
 
   function _roleLabel(role) {
     return { coordinator: 'Coordinator', invoicing: 'Invoicing', manager: 'Manager' }[role] || role;
+  }
+
+  function _logout() {
+    sessionStorage.clear();
+    window.location.reload();
   }
 
   // ── Helpers ───────────────────────────────────────────────

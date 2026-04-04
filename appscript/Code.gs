@@ -485,8 +485,9 @@ function writeRow(rowData, role, coordinatorName) {
       var idx = colIndexMap[key];
       if (idx === undefined) continue;
 
-      // Coordinator: cannot write coordinator_name or any invoicing column
-      if (role === 'coordinator' && COORDINATOR_STRIPPED_KEYS[key]) continue;
+      // Coordinator: cannot write invoicing columns.
+      // coordinator_name IS allowed — it was auto-stamped above and must be persisted.
+      if (role === 'coordinator' && COORDINATOR_STRIPPED_KEYS[key] && key !== 'coordinator_name') continue;
 
       // Invoicing: coordinator_name is read-only
       if (role === 'invoicing' && key === 'coordinator_name') continue;
@@ -509,7 +510,7 @@ function writeRow(rowData, role, coordinatorName) {
       var idx = colIndexMap[key];
       if (idx === undefined) continue;
 
-      if (role === 'coordinator' && COORDINATOR_STRIPPED_KEYS[key]) continue;
+      if (role === 'coordinator' && COORDINATOR_STRIPPED_KEYS[key] && key !== 'coordinator_name') continue;
       if (role === 'invoicing'   && key === 'coordinator_name')      continue;
 
       newRow[idx] = rowData[key];
