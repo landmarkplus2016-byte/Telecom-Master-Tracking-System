@@ -393,7 +393,13 @@ function buildColumnIndexMap(headers) {
 }
 
 function formatCell(value) {
-  if (value instanceof Date) return value.toISOString();
+  if (value instanceof Date) {
+    // Format in the spreadsheet's own timezone so dates are never off by one day
+    // due to UTC conversion (e.g. 2026-04-21 stored in sheet must not come back
+    // as 2026-04-20T22:00:00Z and then be sliced to "2026-04-20").
+    var tz = SpreadsheetApp.getActiveSpreadsheet().getSpreadsheetTimeZone();
+    return Utilities.formatDate(value, tz, 'yyyy-MM-dd');
+  }
   if (value === null || value === undefined) return '';
   return value;
 }

@@ -53,7 +53,7 @@ var Grid = (function () {
     { key: 'new_total_price',            label: 'New Total Price',           width: 130, type: 'numeric', numericFormat: { pattern: '$0,0.00' }, readOnly: ['coordinator', 'invoicing', 'manager'] },
     { key: 'comments',                   label: 'Comments',                  width: 200, type: 'text'    },
     { key: 'status',                     label: 'Status',                    width: 110, type: 'text'    },
-    { key: 'task_date',                  label: 'Task Date',                 width: 110, type: 'date',   dateFormat: 'YYYY-MM-DD' },
+    { key: 'task_date',                  label: 'Task Date',                 width: 110, type: 'date',   dateFormat: 'DD-MMM-YYYY' },
     { key: 'vf_task_owner',              label: 'VF Task Owner',             width: 130, type: 'text'    },
     { key: 'prq',                        label: 'PRQ',                       width:  90, type: 'text'    },
 
@@ -65,21 +65,21 @@ var Grid = (function () {
 
     // ── Invoicing columns — invoicing + manager only ───────
     { key: 'acceptance_status',          label: 'Acceptance Status',         width: 145, type: 'text',    roles: ['invoicing', 'manager'] },
-    { key: 'fac_date',                   label: 'FAC Date',                  width: 110, type: 'date',   dateFormat: 'YYYY-MM-DD', roles: ['invoicing', 'manager'] },
+    { key: 'fac_date',                   label: 'FAC Date',                  width: 110, type: 'date',   dateFormat: 'DD-MMM-YYYY', roles: ['invoicing', 'manager'] },
     { key: 'certificate_num',            label: 'Certificate #',             width: 120, type: 'text',    roles: ['invoicing', 'manager'] },
     { key: 'acceptance_week',            label: 'Acceptance Week',           width: 135, type: 'text',    roles: ['invoicing', 'manager'] },
     { key: 'tsr_sub',                    label: 'TSR Sub#',                  width: 100, type: 'text',    roles: ['invoicing', 'manager'] },
     { key: 'po_status',                  label: 'PO Status',                 width: 110, type: 'text',    roles: ['invoicing', 'manager'] },
     { key: 'po_number',                  label: 'PO Number',                 width: 115, type: 'text',    roles: ['invoicing', 'manager'] },
     { key: 'vf_invoice_num',             label: 'VF Invoice #',              width: 120, type: 'text',    roles: ['invoicing', 'manager'] },
-    { key: 'first_receiving_date',       label: '1st Receiving Date',        width: 145, type: 'date',   dateFormat: 'YYYY-MM-DD', roles: ['invoicing', 'manager'] },
+    { key: 'first_receiving_date',       label: '1st Receiving Date',        width: 145, type: 'date',   dateFormat: 'DD-MMM-YYYY', roles: ['invoicing', 'manager'] },
     { key: 'lmp_portion',                label: 'LMP Portion',               width: 115, type: 'numeric', numericFormat: { pattern: '$0,0.00' }, readOnly: ['coordinator', 'invoicing', 'manager'], roles: ['invoicing', 'manager'] },
     { key: 'contractor_portion',         label: 'Contractor Portion',        width: 145, type: 'numeric', numericFormat: { pattern: '$0,0.00' }, readOnly: ['coordinator', 'invoicing', 'manager'], roles: ['invoicing', 'manager'] },
     { key: 'sent_to_cost_control',       label: 'Sent to Cost Control',      width: 155, type: 'text',    roles: ['invoicing', 'manager'] },
     { key: 'received_from_cc',           label: 'Received from CC',          width: 145, type: 'text',    roles: ['invoicing', 'manager'] },
     { key: 'contractor_invoice_num',     label: 'Contractor Invoice #',      width: 155, type: 'text',    roles: ['invoicing', 'manager'] },
-    { key: 'vf_invoice_submission_date', label: 'VF Invoice Submission Date',width: 200, type: 'date',   dateFormat: 'YYYY-MM-DD', roles: ['invoicing', 'manager'] },
-    { key: 'cash_received_date',         label: 'Cash Received Date',        width: 155, type: 'date',   dateFormat: 'YYYY-MM-DD', roles: ['invoicing', 'manager'] },
+    { key: 'vf_invoice_submission_date', label: 'VF Invoice Submission Date',width: 200, type: 'date',   dateFormat: 'DD-MMM-YYYY', roles: ['invoicing', 'manager'] },
+    { key: 'cash_received_date',         label: 'Cash Received Date',        width: 155, type: 'date',   dateFormat: 'DD-MMM-YYYY', roles: ['invoicing', 'manager'] },
   ];
 
   // ── Internal state ────────────────────────────────────────
