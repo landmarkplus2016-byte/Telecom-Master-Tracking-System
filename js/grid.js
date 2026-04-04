@@ -89,6 +89,7 @@ var Grid = (function () {
   var _userName  = null;
   var _visibleCols = [];   // filtered COLUMNS for current role
   var _data      = [];     // current grid data (array of row objects)
+  var _savePending = {};   // rowIdx → setTimeout handle (debounce per row)
 
   // ── Public API ────────────────────────────────────────────
 
@@ -226,7 +227,9 @@ var Grid = (function () {
       // Freeze first 2 columns (ID + Logical Site ID)
       fixedColumnsLeft:   2,
 
-      // After a cell is edited, save the row to Apps Script
+      // After a cell is edited, save the row to Apps Script.
+      // Debounced per row — prevents duplicate appends when the user
+      // edits multiple cells before the first save callback returns.
       afterChange: function (changes, source) {
         if (!changes || source === 'loadData') return;
         var dirtyRows = {};
@@ -234,7 +237,7 @@ var Grid = (function () {
           dirtyRows[change[0]] = true;
         });
         Object.keys(dirtyRows).forEach(function (rowIdx) {
-          _saveRow(parseInt(rowIdx, 10));
+          _scheduleSave(parseInt(rowIdx, 10));
         });
       },
 
@@ -277,6 +280,22 @@ var Grid = (function () {
   }
 
   // ── Row save ──────────────────────────────────────────────
+
+  // Debounce saves per row (500 ms).
+  // Problem this solves: when a coordinator creates a new row and
+  // edits several cells in quick succession, each cell commit fires
+  // afterChange before the first writeRow callback returns with
+  // _row_index. Without debounce every save hits the "append" path,
+  // creating duplicate sheet rows. With debounce, only one save fires
+  // after the user pauses, so _row_index is set correctly for all
+  // subsequent edits to the same row.
+  function _scheduleSave(rowIdx) {
+    clearTimeout(_savePending[rowIdx]);
+    _savePending[rowIdx] = setTimeout(function () {
+      delete _savePending[rowIdx];
+      _saveRow(rowIdx);
+    }, 500);
+  }
 
   function _saveRow(rowIdx) {
     if (!_hot) return;

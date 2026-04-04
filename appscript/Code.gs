@@ -563,6 +563,52 @@ function testGetRowsAsCoordinator() {
   // Verify: row_num, coordinator_name, acceptance_status etc must NOT appear
 }
 
+// ── Diagnostic: verify coordinator_name is written correctly ──
+// Run this directly in the Apps Script editor.
+// Replace 'Alice' / 'abc123' with a real coordinator name + code from Config tab.
+// Then check the Data tab — the new row should have the coordinator name filled in.
+function testWriteRowAsCoordinator() {
+  // Step 1: Authenticate to get the real coordinatorName from Config
+  var authResult = authenticate('Alice', 'abc123');
+  Logger.log('Auth result: ' + JSON.stringify(authResult));
+  if (!authResult.success) {
+    Logger.log('AUTH FAILED — check name/code in Config tab');
+    return;
+  }
+
+  // Step 2: Simulate what the client sends (coordinator never sends coordinator_name)
+  var fakeRowData = {
+    job_code: 'TEST-DEBUG',
+    tx_rf:    'TX',
+    vendor:   'Test Vendor',
+    task_name: 'Debug write test'
+    // _row_index intentionally absent → triggers append path
+    // coordinator_name intentionally absent — server must auto-stamp it
+  };
+
+  Logger.log('rowData BEFORE writeRow: ' + JSON.stringify(fakeRowData));
+
+  // Step 3: Call writeRow exactly as the server would
+  var writeResult = writeRow(fakeRowData, 'coordinator', authResult.name);
+  Logger.log('writeRow result: ' + JSON.stringify(writeResult));
+
+  // Step 4: Read back that row and check coordinator_name
+  if (writeResult.success && writeResult.rowIndex) {
+    var ss = SpreadsheetApp.getActiveSpreadsheet();
+    var dataSheet = ss.getSheetByName(SHEET_DATA);
+    var headers = dataSheet.getRange(1, 1, 1, dataSheet.getLastColumn()).getValues()[0];
+    var row = dataSheet.getRange(writeResult.rowIndex, 1, 1, dataSheet.getLastColumn()).getValues()[0];
+    var obj = {};
+    for (var i = 0; i < headers.length; i++) {
+      obj[headers[i]] = row[i];
+    }
+    Logger.log('coordinator_name in sheet: "' + obj['coordinator_name'] + '"');
+    Logger.log('PASS: ' + (obj['coordinator_name'] === authResult.name
+      ? 'coordinator_name was written correctly'
+      : 'FAIL — coordinator_name is empty or wrong. Expected: "' + authResult.name + '"'));
+  }
+}
+
 function testGetRowsAsInvoicing() {
   var result = getRows('invoicing', 'Bob');
   Logger.log('Row count : ' + result.rows.length);
