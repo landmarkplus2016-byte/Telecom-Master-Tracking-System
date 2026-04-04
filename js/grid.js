@@ -120,13 +120,10 @@ var Grid = (function () {
     _data = rows || [];
     if (!_hot) return;
 
-    var tableData = _data.map(function (row) {
-      return _visibleCols.map(function (col) {
-        return row[col.key] !== undefined ? row[col.key] : '';
-      });
-    });
-
-    _hot.loadData(tableData);
+    // HOT columns are configured with data:'key' — pass objects directly.
+    // Converting to arrays causes empty cells because HOT uses the key
+    // mapping, not array index, when columns[i].data is set.
+    _hot.loadData(_data);
     _updateRowCount(_data.length);
   }
 
@@ -284,9 +281,13 @@ var Grid = (function () {
   function _saveRow(rowIdx) {
     if (!_hot) return;
 
+    // HOT data source is objects — read directly from the source row.
+    // getSourceDataAtRow returns the live object HOT is bound to.
+    var sourceRow = _hot.getSourceDataAtRow(rowIdx) || {};
+
     var rowData = {};
-    _visibleCols.forEach(function (col, colIdx) {
-      rowData[col.key] = _hot.getDataAtCell(rowIdx, colIdx);
+    _visibleCols.forEach(function (col) {
+      rowData[col.key] = sourceRow[col.key] !== undefined ? sourceRow[col.key] : '';
     });
 
     // Attach the sheet row index so Apps Script knows whether
