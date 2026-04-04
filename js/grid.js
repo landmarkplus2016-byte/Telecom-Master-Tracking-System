@@ -31,33 +31,33 @@ var Grid = (function () {
   // never rendered in the grid for any role.
   var COLUMNS = [
     // ── Coordinator columns (visible to all roles) ─────────
-    { key: 'id',                         label: 'ID #',                      width: 180, type: 'text',    readOnly: ['coordinator', 'invoicing', 'manager'] },
-    { key: 'job_code',                   label: 'Job Code',                  width: 120, type: 'text'    },
-    { key: 'tx_rf',                      label: 'TX/RF',                     width:  80, type: 'text'    },
-    { key: 'vendor',                     label: 'Vendor',                    width: 130, type: 'text'    },
-    { key: 'physical_site_id',           label: 'Physical Site ID',          width: 130, type: 'text'    },
-    { key: 'logical_site_id',            label: 'Logical Site ID',           width: 130, type: 'text'    },
-    { key: 'site_option',                label: 'Site Option',               width: 100, type: 'text'    },
-    { key: 'facing',                     label: 'Facing',                    width:  90, type: 'text'    },
-    { key: 'region',                     label: 'Region',                    width: 100, type: 'text'    },
-    { key: 'sub_region',                 label: 'Sub Region',                width: 110, type: 'text'    },
-    { key: 'distance',                   label: 'Distance',                  width:  90, type: 'numeric' },
-    { key: 'absolute_quantity',          label: 'Absolute Quantity',         width: 130, type: 'numeric' },
-    { key: 'actual_quantity',            label: 'Actual Quantity',           width: 120, type: 'numeric' },
-    { key: 'general_stream',             label: 'General Stream',            width: 130, type: 'text'    },
-    { key: 'task_name',                  label: 'Task Name',                 width: 200, type: 'text'    },
-    { key: 'contractor',                 label: 'Contractor',                width: 130, type: 'text'    },
-    { key: 'engineer_name',              label: "Engineer's Name",           width: 140, type: 'text'    },
-    { key: 'line_item',                  label: 'Line Item',                 width: 110, type: 'text'    },
-    { key: 'new_price',                  label: 'New Price',                 width: 110, type: 'numeric', numericFormat: { pattern: '$0,0.00' }, readOnly: ['coordinator', 'invoicing'] },
-    { key: 'new_total_price',            label: 'New Total Price',           width: 130, type: 'numeric', numericFormat: { pattern: '$0,0.00' }, readOnly: ['coordinator', 'invoicing', 'manager'] },
-    { key: 'comments',                   label: 'Comments',                  width: 200, type: 'text'    },
-    { key: 'status',                     label: 'Status',                    width: 110, type: 'text'    },
-    { key: 'task_date',                  label: 'Task Date',                 width: 110, type: 'date',   dateFormat: 'DD-MMM-YYYY' },
+    { key: 'id',                         label: 'ID #',                      width: 180, type: 'text',     readOnly: ['coordinator', 'invoicing', 'manager'] },
+    { key: 'job_code',                   label: 'Job Code',                  width: 120, type: 'text'     },
+    { key: 'tx_rf',                      label: 'TX/RF',                     width:  80, type: 'dropdown' },
+    { key: 'vendor',                     label: 'Vendor',                    width: 130, type: 'dropdown' },
+    { key: 'physical_site_id',           label: 'Physical Site ID',          width: 130, type: 'text'     },
+    { key: 'logical_site_id',            label: 'Logical Site ID',           width: 130, type: 'text'     },
+    { key: 'site_option',                label: 'Site Option',               width: 100, type: 'dropdown' },
+    { key: 'facing',                     label: 'Facing',                    width:  90, type: 'dropdown' },
+    { key: 'region',                     label: 'Region',                    width: 100, type: 'dropdown' },
+    { key: 'sub_region',                 label: 'Sub Region',                width: 110, type: 'dropdown' },
+    { key: 'distance',                   label: 'Distance',                  width: 140, type: 'dropdown' },
+    { key: 'absolute_quantity',          label: 'Absolute Quantity',         width: 130, type: 'numeric'  },
+    { key: 'actual_quantity',            label: 'Actual Quantity',           width: 120, type: 'numeric'  },
+    { key: 'general_stream',             label: 'General Stream',            width: 130, type: 'dropdown' },
+    { key: 'task_name',                  label: 'Task Name',                 width: 200, type: 'dropdown' },
+    { key: 'contractor',                 label: 'Contractor',                width: 130, type: 'dropdown' },
+    { key: 'engineer_name',              label: "Engineer's Name",           width: 140, type: 'text'     },
+    { key: 'line_item',                  label: 'Line Item',                 width: 110, type: 'dropdown' },
+    { key: 'new_price',                  label: 'New Price',                 width: 110, type: 'numeric',  numericFormat: { pattern: '$0,0.00' }, readOnly: ['coordinator', 'invoicing'] },
+    { key: 'new_total_price',            label: 'New Total Price',           width: 130, type: 'numeric',  numericFormat: { pattern: '$0,0.00' }, readOnly: ['coordinator', 'invoicing', 'manager'] },
+    { key: 'comments',                   label: 'Comments',                  width: 200, type: 'text'     },
+    { key: 'status',                     label: 'Status',                    width: 110, type: 'dropdown' },
+    { key: 'task_date',                  label: 'Task Date',                 width: 110, type: 'date',     dateFormat: 'DD-MMM-YYYY' },
     // ── Pricing indicator — computed client-side, never saved to sheet ──
-    { key: '_price_indicator',           label: '●',                         width:  42, type: 'text',   readOnly: ['coordinator', 'invoicing', 'manager'] },
-    { key: 'vf_task_owner',              label: 'VF Task Owner',             width: 130, type: 'text'    },
-    { key: 'prq',                        label: 'PRQ',                       width:  90, type: 'text'    },
+    { key: '_price_indicator',           label: '●',                         width:  42, type: 'text',     readOnly: ['coordinator', 'invoicing', 'manager'] },
+    { key: 'vf_task_owner',              label: 'VF Task Owner',             width: 130, type: 'dropdown' },
+    { key: 'prq',                        label: 'PRQ',                       width:  90, type: 'text'     },
 
     // ── Ownership column — role-gated ─────────────────────
     { key: 'coordinator_name',           label: 'Coordinator',               width: 130, type: 'text',
@@ -66,32 +66,33 @@ var Grid = (function () {
     },
 
     // ── Invoicing columns — invoicing + manager only ───────
-    { key: 'acceptance_status',          label: 'Acceptance Status',         width: 145, type: 'text',    roles: ['invoicing', 'manager'] },
-    { key: 'fac_date',                   label: 'FAC Date',                  width: 110, type: 'date',   dateFormat: 'DD-MMM-YYYY', roles: ['invoicing', 'manager'] },
-    { key: 'certificate_num',            label: 'Certificate #',             width: 120, type: 'text',    roles: ['invoicing', 'manager'] },
-    { key: 'acceptance_week',            label: 'Acceptance Week',           width: 135, type: 'text',    roles: ['invoicing', 'manager'] },
-    { key: 'tsr_sub',                    label: 'TSR Sub#',                  width: 100, type: 'text',    roles: ['invoicing', 'manager'] },
-    { key: 'po_status',                  label: 'PO Status',                 width: 110, type: 'text',    roles: ['invoicing', 'manager'] },
-    { key: 'po_number',                  label: 'PO Number',                 width: 115, type: 'text',    roles: ['invoicing', 'manager'] },
-    { key: 'vf_invoice_num',             label: 'VF Invoice #',              width: 120, type: 'text',    roles: ['invoicing', 'manager'] },
-    { key: 'first_receiving_date',       label: '1st Receiving Date',        width: 145, type: 'date',   dateFormat: 'DD-MMM-YYYY', roles: ['invoicing', 'manager'] },
-    { key: 'lmp_portion',                label: 'LMP Portion',               width: 115, type: 'numeric', numericFormat: { pattern: '$0,0.00' }, readOnly: ['coordinator', 'invoicing', 'manager'], roles: ['invoicing', 'manager'] },
-    { key: 'contractor_portion',         label: 'Contractor Portion',        width: 145, type: 'numeric', numericFormat: { pattern: '$0,0.00' }, readOnly: ['coordinator', 'invoicing', 'manager'], roles: ['invoicing', 'manager'] },
-    { key: 'sent_to_cost_control',       label: 'Sent to Cost Control',      width: 155, type: 'date',   dateFormat: 'DD-MMM-YYYY', correctFormat: true, roles: ['invoicing', 'manager'] },
-    { key: 'received_from_cc',           label: 'Received from CC',          width: 145, type: 'date',   dateFormat: 'DD-MMM-YYYY', correctFormat: true, roles: ['invoicing', 'manager'] },
-    { key: 'contractor_invoice_num',     label: 'Contractor Invoice #',      width: 155, type: 'text',    roles: ['invoicing', 'manager'] },
-    { key: 'vf_invoice_submission_date', label: 'VF Invoice Submission Date',width: 200, type: 'date',   dateFormat: 'DD-MMM-YYYY', roles: ['invoicing', 'manager'] },
-    { key: 'cash_received_date',         label: 'Cash Received Date',        width: 155, type: 'date',   dateFormat: 'DD-MMM-YYYY', roles: ['invoicing', 'manager'] },
+    { key: 'acceptance_status',          label: 'Acceptance Status',         width: 145, type: 'dropdown', roles: ['invoicing', 'manager'] },
+    { key: 'fac_date',                   label: 'FAC Date',                  width: 110, type: 'date',     dateFormat: 'DD-MMM-YYYY', roles: ['invoicing', 'manager'] },
+    { key: 'certificate_num',            label: 'Certificate #',             width: 120, type: 'text',     roles: ['invoicing', 'manager'] },
+    { key: 'acceptance_week',            label: 'Acceptance Week',           width: 135, type: 'text',     roles: ['invoicing', 'manager'] },
+    { key: 'tsr_sub',                    label: 'TSR Sub#',                  width: 100, type: 'text',     roles: ['invoicing', 'manager'] },
+    { key: 'po_status',                  label: 'PO Status',                 width: 110, type: 'dropdown', roles: ['invoicing', 'manager'] },
+    { key: 'po_number',                  label: 'PO Number',                 width: 115, type: 'text',     roles: ['invoicing', 'manager'] },
+    { key: 'vf_invoice_num',             label: 'VF Invoice #',              width: 120, type: 'text',     roles: ['invoicing', 'manager'] },
+    { key: 'first_receiving_date',       label: '1st Receiving Date',        width: 145, type: 'date',     dateFormat: 'DD-MMM-YYYY', roles: ['invoicing', 'manager'] },
+    { key: 'lmp_portion',                label: 'LMP Portion',               width: 115, type: 'numeric',  numericFormat: { pattern: '$0,0.00' }, readOnly: ['coordinator', 'invoicing', 'manager'], roles: ['invoicing', 'manager'] },
+    { key: 'contractor_portion',         label: 'Contractor Portion',        width: 145, type: 'numeric',  numericFormat: { pattern: '$0,0.00' }, readOnly: ['coordinator', 'invoicing', 'manager'], roles: ['invoicing', 'manager'] },
+    { key: 'sent_to_cost_control',       label: 'Sent to Cost Control',      width: 155, type: 'date',     dateFormat: 'DD-MMM-YYYY', correctFormat: true, roles: ['invoicing', 'manager'] },
+    { key: 'received_from_cc',           label: 'Received from CC',          width: 145, type: 'date',     dateFormat: 'DD-MMM-YYYY', correctFormat: true, roles: ['invoicing', 'manager'] },
+    { key: 'contractor_invoice_num',     label: 'Contractor Invoice #',      width: 155, type: 'text',     roles: ['invoicing', 'manager'] },
+    { key: 'vf_invoice_submission_date', label: 'VF Invoice Submission Date',width: 200, type: 'date',     dateFormat: 'DD-MMM-YYYY', roles: ['invoicing', 'manager'] },
+    { key: 'cash_received_date',         label: 'Cash Received Date',        width: 155, type: 'date',     dateFormat: 'DD-MMM-YYYY', roles: ['invoicing', 'manager'] },
   ];
 
   // ── Internal state ────────────────────────────────────────
 
-  var _hot       = null;   // Handsontable instance
-  var _role      = null;
-  var _userName  = null;
-  var _visibleCols = [];   // filtered COLUMNS for current role
-  var _data      = [];     // current grid data (array of row objects)
-  var _savePending = {};   // rowIdx → setTimeout handle (debounce per row)
+  var _hot             = null;   // Handsontable instance
+  var _role            = null;
+  var _userName        = null;
+  var _visibleCols     = [];     // filtered COLUMNS for current role
+  var _data            = [];     // current grid data (array of row objects)
+  var _savePending     = {};     // rowIdx → setTimeout handle (debounce per row)
+  var _dropdownSources = {};     // { field_key: [option, ...] } — merged from DROPDOWN_DEFAULTS + Config
 
   // ── Public API ────────────────────────────────────────────
 
@@ -148,6 +149,51 @@ var Grid = (function () {
     if (typeof Pricing !== 'undefined' && Pricing.isReady()) {
       for (var i = 0; i < _data.length; i++) {
         _applyPricing(i);
+      }
+    }
+  }
+
+  /**
+   * Merge Config dropdown options with DROPDOWN_DEFAULTS fallbacks and
+   * store in _dropdownSources. Config values win over defaults.
+   * Called by app.js after Sheets.fetchConfig resolves, before Grid.init.
+   *
+   * configDropdowns — { field_key: [option, ...] } from Code.gs getConfigData()
+   *                   Pass null or {} to use defaults only.
+   */
+  function applyDropdowns(configDropdowns) {
+    // Start from a copy of the static defaults
+    var defaults = (typeof DROPDOWN_DEFAULTS !== 'undefined') ? DROPDOWN_DEFAULTS : {};
+    _dropdownSources = {};
+
+    // Copy defaults first
+    Object.keys(defaults).forEach(function (key) {
+      _dropdownSources[key] = defaults[key].slice();
+    });
+
+    // Config values override defaults entirely (not merged) for each field
+    var config = configDropdowns || {};
+    Object.keys(config).forEach(function (key) {
+      if (config[key] && config[key].length) {
+        _dropdownSources[key] = config[key].slice();
+      }
+    });
+
+    console.log('[grid.js] applyDropdowns() — sources loaded for:',
+      Object.keys(_dropdownSources).join(', '));
+
+    // If HOT is already initialised (e.g. applyDropdowns called after init),
+    // update the column sources in-place and re-render.
+    if (_hot) {
+      var columns = _hot.getSettings().columns;
+      if (columns) {
+        _visibleCols.forEach(function (col, colIdx) {
+          if (col.type === 'dropdown') {
+            var src = _dropdownSources[col.key] || [];
+            if (columns[colIdx]) columns[colIdx].source = src;
+          }
+        });
+        _hot.updateSettings({ columns: columns });
       }
     }
   }
@@ -279,8 +325,15 @@ var Grid = (function () {
       };
       if (col.numericFormat) cfg.numericFormat = col.numericFormat;
       if (col.type === 'date') {
-        cfg.dateFormat         = col.dateFormat || 'YYYY-MM-DD';
-        cfg.correctFormat      = true;
+        cfg.dateFormat    = col.dateFormat || 'YYYY-MM-DD';
+        cfg.correctFormat = true;
+      }
+      if (col.type === 'dropdown') {
+        // Source is a live array reference — applyDropdowns() updates it in place.
+        // strict:false allows typing values not in the list (free-text fallback).
+        cfg.source = _dropdownSources[col.key] || [];
+        cfg.strict = false;
+        cfg.allowInvalid = true;
       }
       return cfg;
     });
@@ -330,7 +383,8 @@ var Grid = (function () {
           task_date:       true,
           new_price:       true,
           actual_quantity: true,
-          contractor:      true
+          contractor:      true,
+          distance:        true
         };
 
         changes.forEach(function (change) {
@@ -481,6 +535,7 @@ var Grid = (function () {
     var lineItem   = String(row.line_item   || '').trim();
     var actualQty  = row.actual_quantity;
     var contractor = String(row.contractor  || '').trim();
+    var distance   = String(row.distance    || '').trim();
 
     // ── Auto-fill new_price from price list (non-manager roles only) ──
     // Managers can override new_price manually; for other roles the field
@@ -509,7 +564,7 @@ var Grid = (function () {
 
     // ── Calculate derived totals ──────────────────────────────────
     var newPrice = parseFloat(row.new_price) || 0;
-    var totals   = Pricing.calculateTotals(newPrice, actualQty, contractor);
+    var totals   = Pricing.calculateTotals(newPrice, actualQty, contractor, distance);
 
     _hot.setDataAtRowProp(rowIdx, 'new_total_price', totals.newTotalPrice, 'pricing');
 
@@ -752,8 +807,9 @@ var Grid = (function () {
   // ── Expose ────────────────────────────────────────────────
 
   return {
-    init:     init,
-    loadData: loadData,
+    init:           init,
+    loadData:       loadData,
+    applyDropdowns: applyDropdowns,
   };
 
 }());

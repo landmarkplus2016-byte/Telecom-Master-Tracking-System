@@ -542,39 +542,62 @@ function writeRow(rowData, role, coordinatorName) {
 }
 
 
-// ── Config tab — price data ────────────────────────────────────
+// ── Config tab — price data + dropdowns ───────────────────────
 //
-// Reads three sections from the Config tab and returns structured data
-// for the pricing module. Sections end with a blank cell in column A.
+// Price data (versions + price list) is parsed by _parsePriceData(),
+// which scans the ENTIRE sheet for the "N-Price Versions" table format —
+// tables can be at any column, not just column A.
 //
-// Required Config tab layout:
+// Price table format (as shown in Config tab — no changes needed):
 //
-//   [PRICE_VERSIONS]
-//   Version  | Effective_Date | Notes (optional)
-//   2024     | 01-Apr-2024    |
-//   2025     | 01-Apr-2025    |
+//   ┌──────────────────────────┐
+//   │ 3-Price Versions         │  ← section title (any column)
+//   │ Version  │ Effective From│  ← header row
+//   │ 2025     │ 1-Apr-2025    │
+//   │ 2026     │               │  ← no date yet: ignored for version resolution
+//   └──────────────────────────┘
 //
-//   [PRICE_LIST]
-//   Version  | Line_Item | Unit_Price
-//   2024     | MW001     | 5000
-//   2025     | MW001     | 5500
+//   ┌──────────────────────────┬────────────┬────────────┐
+//   │ 3-Price Versions         │            │            │
+//   │ Line Item   │ 2025 Price │ 2026 Price │            │
+//   │ RF01 - ...  │ 28750      │            │            │
+//   │ TX01 - ...  │ 10250      │ 11000      │            │
+//   └─────────────┴────────────┴────────────┘
+//   Versions are COLUMNS ("2025 Price" → version "2025").
+//
+// Row-based col-A sections (add anywhere in column A):
 //
 //   [CONTRACTOR_SPLITS]
 //   Contractor | LMP_Pct | Contractor_Pct
 //   In-House   | 100     | 0
-//   Ericsson   | 70      | 30
+//
+//   [DISTANCE_MULTIPLIERS]
+//   Distance        | Multiplier
+//   0Km - 100Km     | 1
+//   > 800Km         | 1.25
+//
+//   2-Dropdown Lists  (or [DROPDOWNS])
+//   TX/RF  | Vendor | Region | ...   ← field display names as column headers
+//   TX     | Nokia  | Delta  | ...   ← options, one per cell per column
 
 function getConfigData() {
   var ss     = SpreadsheetApp.getActiveSpreadsheet();
   var config = ss.getSheetByName(SHEET_CONFIG);
   if (!config) {
-    return { success: true, versions: [], priceList: [], contractorSplits: [] };
+    return { success: true, versions: [], priceList: [], contractorSplits: [],
+             distanceMultipliers: [], dropdowns: {} };
   }
 
-  var data             = config.getDataRange().getValues();
-  var versions         = [];
-  var priceList        = [];
-  var contractorSplits = [];
+  var data = config.getDataRange().getValues();
+
+  // ── Pass 1: Price versions + price list ───────────────────
+  // Scans entire sheet for "N-Price Versions" tables at any column.
+  var priceResult = _parsePriceData(data);
+
+  // ── Pass 2: Col-A row-based sections ──────────────────────
+  var contractorSplits    = [];
+  var distanceMultipliers = [];
+  var dropdowns           = {};
 
   var section    = null;
   var headerSeen = false;
@@ -583,11 +606,14 @@ function getConfigData() {
   for (var i = 0; i < data.length; i++) {
     var rowLabel = String(data[i][0]).trim();
 
-    // Section markers
-    if (rowLabel === '[PRICE_VERSIONS]' ||
-        rowLabel === '[PRICE_LIST]'     ||
-        rowLabel === '[CONTRACTOR_SPLITS]') {
+    if (rowLabel === '[CONTRACTOR_SPLITS]' || rowLabel === '[DISTANCE_MULTIPLIERS]') {
       section    = rowLabel;
+      headerSeen = false;
+      colMap     = {};
+      continue;
+    }
+    if (rowLabel === '[DROPDOWNS]' || /dropdown/i.test(rowLabel)) {
+      section    = '[DROPDOWNS]';
       headerSeen = false;
       colMap     = {};
       continue;
@@ -595,22 +621,50 @@ function getConfigData() {
 
     if (!section) continue;
 
-    // Blank row in column A ends the current section
-    if (rowLabel === '') { section = null; continue; }
+    // Blank col A ends non-dropdown sections.
+    // For dropdown sections (columnar), only end when the entire row is blank.
+    if (rowLabel === '') {
+      if (section !== '[DROPDOWNS]') { section = null; continue; }
+      var entirelyBlank = true;
+      for (var eb = 0; eb < data[i].length; eb++) {
+        if (data[i][eb] !== '' && data[i][eb] !== null) { entirelyBlank = false; break; }
+      }
+      if (entirelyBlank) { section = null; continue; }
+    }
 
-    // First non-blank row after the marker is the column header
+    // ── [DROPDOWNS] — columnar: header row = field display names ──
+    if (section === '[DROPDOWNS]') {
+      if (!headerSeen) {
+        headerSeen = true;
+        for (var d = 0; d < data[i].length; d++) {
+          var dlabel = String(data[i][d]).trim();
+          if (dlabel) {
+            var fk = dlabel.toLowerCase()
+              .replace(/[\s\/]+/g, '_').replace(/[^a-z0-9_]/g, '');
+            colMap[d] = fk;
+            if (!dropdowns[fk]) dropdowns[fk] = [];
+          }
+        }
+      } else {
+        for (var d = 0; d < data[i].length; d++) {
+          if (colMap[d] === undefined) continue;
+          var opt = String(data[i][d]).trim();
+          if (opt) dropdowns[colMap[d]].push(opt);
+        }
+      }
+      continue;
+    }
+
+    // ── [CONTRACTOR_SPLITS] and [DISTANCE_MULTIPLIERS] ────────
     if (!headerSeen) {
       headerSeen = true;
       var hdrs = data[i].map(function (h) {
         return String(h).trim().toLowerCase().replace(/\s+/g, '_');
       });
-      for (var h = 0; h < hdrs.length; h++) {
-        if (hdrs[h]) colMap[hdrs[h]] = h;
-      }
+      for (var h = 0; h < hdrs.length; h++) { if (hdrs[h]) colMap[hdrs[h]] = h; }
       continue;
     }
 
-    // Data rows — skip entirely blank rows
     var rowEmpty = true;
     for (var c = 0; c < data[i].length; c++) {
       if (data[i][c] !== '' && data[i][c] !== null) { rowEmpty = false; break; }
@@ -619,37 +673,146 @@ function getConfigData() {
 
     var row = data[i];
 
-    if (section === '[PRICE_VERSIONS]') {
-      var ver     = String(row[colMap['version']        !== undefined ? colMap['version']        : 0] || '').trim();
-      var effDate = row [colMap['effective_date']       !== undefined ? colMap['effective_date']  : 1];
-      if (ver) {
-        versions.push({ version: ver, effectiveDate: formatCell(effDate) });
-      }
+    if (section === '[CONTRACTOR_SPLITS]') {
+      var cName   = String(row[colMap['contractor']     !== undefined ? colMap['contractor']     : 0] || '').trim();
+      var cLmp    = Number(row[colMap['lmp_pct']        !== undefined ? colMap['lmp_pct']        : 1]) || 0;
+      var cConPct = Number(row[colMap['contractor_pct'] !== undefined ? colMap['contractor_pct'] : 2]) || 0;
+      if (cName) contractorSplits.push({ contractor: cName, lmpPct: cLmp, contractorPct: cConPct });
 
-    } else if (section === '[PRICE_LIST]') {
-      var pVer  = String(row[colMap['version']   !== undefined ? colMap['version']   : 0] || '').trim();
-      var pItem = String(row[colMap['line_item']  !== undefined ? colMap['line_item'] : 1] || '').trim();
-      var pAmt  = Number(row[colMap['unit_price'] !== undefined ? colMap['unit_price']: 2])  || 0;
-      if (pVer && pItem) {
-        priceList.push({ version: pVer, lineItem: pItem, unitPrice: pAmt });
-      }
-
-    } else if (section === '[CONTRACTOR_SPLITS]') {
-      var cName   = String(row[colMap['contractor']      !== undefined ? colMap['contractor']      : 0] || '').trim();
-      var cLmp    = Number(row[colMap['lmp_pct']         !== undefined ? colMap['lmp_pct']         : 1]) || 0;
-      var cConPct = Number(row[colMap['contractor_pct']  !== undefined ? colMap['contractor_pct']  : 2]) || 0;
-      if (cName) {
-        contractorSplits.push({ contractor: cName, lmpPct: cLmp, contractorPct: cConPct });
-      }
+    } else if (section === '[DISTANCE_MULTIPLIERS]') {
+      var distIdx = colMap['distance']   !== undefined ? colMap['distance']
+                  : colMap['range']      !== undefined ? colMap['range']      : 0;
+      var multIdx = colMap['multiplier'] !== undefined ? colMap['multiplier']
+                  : colMap['factor']     !== undefined ? colMap['factor']     : 1;
+      var dRange  = String(row[distIdx] || '').trim();
+      var dMult   = Number(row[multIdx]) || 0;
+      if (dRange && dMult) distanceMultipliers.push({ range: dRange, multiplier: dMult });
     }
   }
 
   return {
-    success:          true,
-    versions:         versions,
-    priceList:        priceList,
-    contractorSplits: contractorSplits
+    success:             true,
+    versions:            priceResult.versions,
+    priceList:           priceResult.priceList,
+    contractorSplits:    contractorSplits,
+    distanceMultipliers: distanceMultipliers,
+    dropdowns:           dropdowns
   };
+}
+
+
+// ── _parsePriceData — scans entire sheet for price tables ─────
+//
+// Finds all tables whose section header matches "N-Price Versions"
+// (e.g. "3-Price Versions"). Two table types auto-detected by header:
+//
+//   Type 1 — first header cell starts with "Version":
+//     → parsed as version table (version name + effective date)
+//
+//   Type 2 — first header cell contains "Line Item":
+//     → parsed as price list (line item rows × version columns)
+//     → version name extracted from column header: "2025 Price" → "2025"
+//
+// Version 2026 with no effective date is silently skipped — it becomes
+// active automatically once the Manager adds its effective date.
+
+function _parsePriceData(data) {
+  var versions    = [];
+  var priceList   = [];
+
+  var state       = null;   // null | 'finding_header' | 'versions' | 'pricelist'
+  var sectionCol  = 0;      // column where current section starts
+  var colMap      = {};     // versions table: header_key → absolute col index
+  var versionCols = {};     // price list: absolute col index → version name
+
+  for (var i = 0; i < data.length; i++) {
+
+    // ── Scan entire row for a price section title ─────────────
+    // Matches "3-Price Versions", "1-Price Version", etc.
+    var foundCol = -1;
+    for (var c = 0; c < data[i].length; c++) {
+      var cell = String(data[i][c]).trim();
+      if (cell && /^\d+-price\s+versions?$/i.test(cell)) {
+        foundCol = c;
+        break;
+      }
+    }
+
+    if (foundCol !== -1) {
+      state       = 'finding_header';
+      sectionCol  = foundCol;
+      colMap      = {};
+      versionCols = {};
+      continue;
+    }
+
+    if (!state) continue;
+
+    // ── Read the header row to determine table type ───────────
+    if (state === 'finding_header') {
+      var firstHdr = String(data[i][sectionCol] || '').trim();
+
+      if (/^version/i.test(firstHdr)) {
+        // Version table
+        state = 'versions';
+        for (var h = sectionCol; h < data[i].length; h++) {
+          var hdr = String(data[i][h]).trim().toLowerCase()
+            .replace(/[\s\/]+/g, '_').replace(/[^a-z0-9_]/g, '');
+          if (hdr) colMap[hdr] = h;
+        }
+
+      } else if (/line.?item/i.test(firstHdr)) {
+        // Price list table — versions are columns
+        state = 'pricelist';
+        for (var h = sectionCol + 1; h < data[i].length; h++) {
+          var hdr = String(data[i][h] || '').trim();
+          if (!hdr) continue;
+          // "2025 Price" → "2025",  "2026" → "2026"
+          var vm = hdr.match(/^(\S+)/);
+          if (vm) versionCols[h] = vm[1];
+        }
+
+      } else {
+        state = null; // unrecognized header
+      }
+      continue;
+    }
+
+    // ── Parse data rows ───────────────────────────────────────
+
+    if (state === 'versions') {
+      var ver = String(data[i][sectionCol] || '').trim();
+      if (!ver) continue; // blank version name — skip row
+
+      // "Effective From" or "Effective_Date" — whichever header was found
+      var effIdx = colMap['effective_from'] !== undefined ? colMap['effective_from']
+                 : colMap['effective_date'] !== undefined ? colMap['effective_date']
+                 : sectionCol + 1;
+      var effDate = data[i][effIdx];
+      if (effDate) {
+        // Only add versions that have an effective date set.
+        // Undated future versions are skipped until the date is entered.
+        versions.push({ version: ver, effectiveDate: formatCell(effDate) });
+      }
+
+    } else if (state === 'pricelist') {
+      var lineItem = String(data[i][sectionCol] || '').trim();
+      if (!lineItem) continue; // blank line item — skip row
+
+      for (var col in versionCols) {
+        var price = Number(data[i][col]) || 0;
+        if (price > 0) {
+          priceList.push({
+            version:   versionCols[col],
+            lineItem:  lineItem,
+            unitPrice: price
+          });
+        }
+      }
+    }
+  }
+
+  return { versions: versions, priceList: priceList };
 }
 
 
@@ -749,4 +912,26 @@ function testGetRowsAsManager() {
   var result = getRows('manager', 'Carol');
   Logger.log('Row count : ' + result.rows.length);
   Logger.log('Col count : ' + result.columns.length + '  (expect 42)');
+}
+
+function testGetConfig() {
+  var result = getConfigData();
+  Logger.log('success              : ' + result.success);
+  Logger.log('versions             : ' + result.versions.length);
+  Logger.log('priceList entries    : ' + result.priceList.length);
+  Logger.log('contractorSplits     : ' + result.contractorSplits.length);
+  Logger.log('distanceMultipliers  : ' + result.distanceMultipliers.length);
+  Logger.log('--- versions ---');
+  result.versions.forEach(function (v) {
+    Logger.log('  ' + v.version + '  effective: ' + v.effectiveDate);
+  });
+  Logger.log('--- priceList sample (first 5) ---');
+  result.priceList.slice(0, 5).forEach(function (p) {
+    Logger.log('  [' + p.version + '] ' + p.lineItem + '  →  ' + p.unitPrice);
+  });
+  Logger.log('--- dropdown fields ---');
+  Object.keys(result.dropdowns).forEach(function (key) {
+    Logger.log('  ' + key + ': ' + result.dropdowns[key].length + ' options → ' +
+      result.dropdowns[key].slice(0, 3).join(', '));
+  });
 }

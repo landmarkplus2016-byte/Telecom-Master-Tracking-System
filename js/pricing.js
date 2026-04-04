@@ -58,10 +58,11 @@ var Pricing = (function () {
 
   // ── Internal state ────────────────────────────────────────
 
-  var _versions = [];  // [{ name, effectiveDate: Date }] — sorted asc
-  var _priceMap = {};  // { 'VERSION|line_item_lower': unitPrice }
-  var _splits   = [];  // [{ contractor_lower, lmpPct, contractorPct }]
-  var _ready    = false;
+  var _versions    = [];  // [{ name, effectiveDate: Date }] — sorted asc
+  var _priceMap    = {};  // { 'VERSION|line_item_lower': unitPrice }
+  var _splits      = [];  // [{ contractor_lower, lmpPct, contractorPct }]
+  var _distMults   = [];  // [{ range_lower, multiplier }] — distance range → multiplier
+  var _ready       = false;
 
   // ── Public: Init ──────────────────────────────────────────
 
@@ -74,9 +75,10 @@ var Pricing = (function () {
    *              degradation: auto-calc still works, lookups return null).
    */
   function init(configData) {
-    _versions = [];
-    _priceMap = {};
-    _splits   = [];
+    _versions  = [];
+    _priceMap  = {};
+    _splits    = [];
+    _distMults = [];
 
     if (configData) {
       // ── Parse versions ──────────────────────────────────
@@ -104,12 +106,22 @@ var Pricing = (function () {
           contractorPct:    parseFloat(s.contractorPct) || 0
         });
       });
+
+      // ── Parse distance multipliers ──────────────────────
+      (configData.distanceMultipliers || []).forEach(function (d) {
+        if (!d.range) return;
+        _distMults.push({
+          range_lower: String(d.range).trim().toLowerCase(),
+          multiplier:  parseFloat(d.multiplier) || 1
+        });
+      });
     }
 
     _ready = true;
     console.log('[pricing.js] init() — versions:', _versions.length,
       '| price entries:', Object.keys(_priceMap).length,
-      '| splits:', _splits.length);
+      '| splits:', _splits.length,
+      '| distance multipliers:', _distMults.length);
   }
 
   function isReady() { return _ready; }
@@ -185,20 +197,48 @@ var Pricing = (function () {
     return { lmpPct: 100, contractorPct: 0 };
   }
 
+  // ── Public: Distance multiplier ──────────────────────────
+
+  /**
+   * Return the multiplier for a given distance range string.
+   * Falls back to 1 if the range is not in the Config data.
+   *
+   * distanceRange — string matching a row in [DISTANCE_MULTIPLIERS]
+   *                 e.g. "0Km - 100Km", "> 800Km"
+   */
+  function getDistanceMultiplier(distanceRange) {
+    if (!distanceRange) return 1;
+    var range = String(distanceRange).trim().toLowerCase();
+    for (var i = 0; i < _distMults.length; i++) {
+      if (_distMults[i].range_lower === range) return _distMults[i].multiplier;
+    }
+    // Not configured — no adjustment
+    return 1;
+  }
+
   // ── Public: Auto-calculation ──────────────────────────────
 
   /**
    * Calculate the three derived numeric fields from the row values.
+   *
+   * Formula:
+   *   New Total Price = New Price × Actual Quantity × Distance Multiplier
+   *   LMP Portion     = New Total Price × LMP %
+   *   Contractor Portion = New Total Price × Contractor %
+   *
+   * distanceRange — string from the Distance dropdown (e.g. "0Km - 100Km")
+   *
    * Returns { newTotalPrice, lmpPortion, contractorPortion }.
    */
-  function calculateTotals(newPrice, actualQty, contractor) {
-    var price = parseFloat(newPrice)  || 0;
-    var qty   = parseFloat(actualQty) || 0;
-    var total = price * qty;
+  function calculateTotals(newPrice, actualQty, contractor, distanceRange) {
+    var price    = parseFloat(newPrice)  || 0;
+    var qty      = parseFloat(actualQty) || 0;
+    var distMult = getDistanceMultiplier(distanceRange);
+    var total    = price * qty * distMult;
 
-    var split       = getContractorSplit(contractor);
-    var lmp         = total * (split.lmpPct        / 100);
-    var conPortion  = total * (split.contractorPct / 100);
+    var split      = getContractorSplit(contractor);
+    var lmp        = total * (split.lmpPct        / 100);
+    var conPortion = total * (split.contractorPct / 100);
 
     return {
       newTotalPrice:     total,
@@ -286,13 +326,14 @@ var Pricing = (function () {
   // ── Expose ────────────────────────────────────────────────
 
   return {
-    init:               init,
-    isReady:            isReady,
-    resolveVersion:     resolveVersion,
-    lookupPrice:        lookupPrice,
-    getContractorSplit: getContractorSplit,
-    calculateTotals:    calculateTotals,
-    getIndicator:       getIndicator
+    init:                   init,
+    isReady:                isReady,
+    resolveVersion:         resolveVersion,
+    lookupPrice:            lookupPrice,
+    getContractorSplit:     getContractorSplit,
+    getDistanceMultiplier:  getDistanceMultiplier,
+    calculateTotals:        calculateTotals,
+    getIndicator:           getIndicator
   };
 
 }());

@@ -62,21 +62,23 @@
     // Show the main app screen
     _show('screen-app');
 
-    // Init grid (renders columns and toolbar for this role)
-    Grid.init(role, name);
-
-    // Fetch price config first, then rows.
-    // Pricing must be initialised before Grid.loadData so that
-    // auto-calculations and indicators are applied on first render.
+    // Fetch price config + dropdowns first, then init grid, then load rows.
+    // Order matters: dropdowns and pricing must be ready before Grid.init
+    // so that column sources are wired correctly on first render.
     _setLoadingStatus('Loading config\u2026');
     Sheets.fetchConfig(function (configResult) {
       if (configResult.success) {
         Pricing.init(configResult);
+        Grid.applyDropdowns(configResult.dropdowns || {});
       } else {
-        // Non-fatal: pricing degrades gracefully with no config data
-        console.warn('[app.js] fetchConfig failed:', configResult.error, '— pricing disabled');
+        // Non-fatal: both modules degrade gracefully with no config data
+        console.warn('[app.js] fetchConfig failed:', configResult.error, '— pricing + dropdowns disabled');
         Pricing.init(null);
+        Grid.applyDropdowns({});
       }
+
+      // Init grid AFTER dropdowns are loaded so column sources are set
+      Grid.init(role, name);
 
       _setLoadingStatus('Loading data\u2026');
       Sheets.fetchAllRows(function (result) {
