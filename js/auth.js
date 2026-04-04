@@ -29,20 +29,46 @@ var Auth = (function () {
   // ── Public API ────────────────────────────────────────────
 
   function init(onSuccess) {
-    _onLoginSuccess = onSuccess;
+    console.log('[auth.js] init() called');
 
-    // If no Apps Script URL is stored, hand off to Config
-    if (!_hasAppScriptUrl()) {
-      Config.showSetup(function () {
-        // Config calls this when URL is saved — show login
+    try {
+      _onLoginSuccess = onSuccess;
+
+      // Always hide the loading screen before showing any auth screen
+      _hide('screen-loading');
+      console.log('[auth.js] loading screen hidden');
+
+      // If no Apps Script URL is stored, hand off to Config setup screen
+      if (!_hasAppScriptUrl()) {
+        console.log('[auth.js] No Apps Script URL found — showing setup screen');
+        try {
+          Config.showSetup(function () {
+            console.log('[auth.js] Setup complete — showing login screen');
+            try {
+              _renderLogin();
+              _show('screen-login');
+            } catch (e) {
+              console.error('[auth.js] Error rendering login after setup:', e);
+            }
+          });
+        } catch (e) {
+          console.error('[auth.js] Error calling Config.showSetup():', e);
+        }
+        return;
+      }
+
+      console.log('[auth.js] Apps Script URL found — rendering login screen');
+      try {
         _renderLogin();
         _show('screen-login');
-      });
-      return;
-    }
+        console.log('[auth.js] Login screen shown');
+      } catch (e) {
+        console.error('[auth.js] Error rendering login screen:', e);
+      }
 
-    _renderLogin();
-    _show('screen-login');
+    } catch (e) {
+      console.error('[auth.js] Unexpected error in init():', e);
+    }
   }
 
   // Called by app.js to pre-populate names once sheets.js
@@ -57,8 +83,12 @@ var Auth = (function () {
   // ── Render ────────────────────────────────────────────────
 
   function _renderLogin() {
+    console.log('[auth.js] _renderLogin() called');
     var container = document.getElementById('screen-login');
-    if (!container) return;
+    if (!container) {
+      console.error('[auth.js] #screen-login element not found in DOM');
+      return;
+    }
 
     container.innerHTML = [
       '<div class="login-bg">',
@@ -265,6 +295,7 @@ var Auth = (function () {
   // within forms.css — these styles complement forms.css
 
   (function _injectStyles() {
+    try {
     if (document.getElementById('auth-styles')) return;
     var s = document.createElement('style');
     s.id = 'auth-styles';
@@ -555,6 +586,7 @@ var Auth = (function () {
     ].join('\n');
 
     document.head.appendChild(s);
+    } catch (e) { console.error('[auth.js] _injectStyles() failed:', e); }
   }());
 
   // ── Expose ────────────────────────────────────────────────
