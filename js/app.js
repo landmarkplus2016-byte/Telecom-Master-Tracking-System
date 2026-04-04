@@ -55,9 +55,45 @@
     // Show the main app screen
     _show('screen-app');
 
-    // TODO Stage 1 Step 6: init grid and fetch data
-    // Grid.init(role, name);
-    // Sheets.fetchAllRows(function(result) { ... });
+    // Init grid (renders columns and toolbar for this role)
+    Grid.init(role, name);
+
+    // Fetch all rows from Apps Script and load into grid
+    _setLoadingStatus('Loading data\u2026');
+    Sheets.fetchAllRows(function (result) {
+      _hide('screen-loading');
+      if (!result.success) {
+        console.error('[app.js] fetchAllRows failed:', result.error);
+        _showError('Could not load data: ' + result.error);
+        return;
+      }
+      console.log('[app.js] fetchAllRows — rows received:', result.rows.length);
+      Grid.loadData(result.rows);
+    });
+  }
+
+  // ── Helpers ───────────────────────────────────────────────
+
+  function _setLoadingStatus(text) {
+    var el = document.getElementById('loading-status-text');
+    if (!el) return;
+    var ellipsis = el.querySelector('.loading-ellipsis');
+    el.textContent = text;
+    if (ellipsis) el.appendChild(ellipsis);
+  }
+
+  function _showError(msg) {
+    var toast = document.createElement('div');
+    toast.style.cssText = [
+      'position:fixed', 'bottom:40px', 'right:20px',
+      'background:#c0392b', 'color:#fff',
+      'font-family:var(--font-body)', 'font-size:13px',
+      'padding:10px 18px', 'z-index:9999', 'max-width:400px',
+      'box-shadow:0 4px 16px rgba(0,0,0,0.2)'
+    ].join(';');
+    toast.textContent = msg;
+    document.body.appendChild(toast);
+    setTimeout(function () { toast.remove(); }, 6000);
   }
 
   // ── Header ────────────────────────────────────────────────
