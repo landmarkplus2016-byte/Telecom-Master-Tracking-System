@@ -105,7 +105,10 @@ var Grid = (function () {
 
     _renderToolbar(role);
     _initHot();
+    _fitContainer();
     _updateRowCount(0);
+
+    window.addEventListener('resize', _fitContainer);
   }
 
   /**
@@ -208,11 +211,14 @@ var Grid = (function () {
       colHeaders:         colHeaders,
       columns:            columns,
       rowHeaders:         true,
-      stretchH:           'last',
+      // width/height must be explicit numbers or '100%' — HOT does
+      // not honour CSS flex sizing on its own.
+      width:              '100%',
+      height:             '100%',
+      stretchH:           'all',
       manualColumnResize: true,
       manualRowResize:    false,
       columnSorting:      true,
-      sortIndicator:      true,
       contextMenu:        _contextMenu(),
       outsideClickDeselects: false,
       selectionMode:      'multiple',
@@ -220,9 +226,8 @@ var Grid = (function () {
       autoWrapCol:        false,
       licenseKey:         'non-commercial-and-evaluation',
 
-      // Freeze first 2 columns (ID + Logical Site ID) so they
-      // stay visible when scrolling horizontally
-      fixedColumnsLeft: (_role === 'coordinator') ? 2 : 2,
+      // Freeze first 2 columns (ID + Logical Site ID)
+      fixedColumnsLeft:   2,
 
       // After a cell is edited, save the row to Apps Script
       afterChange: function (changes, source) {
@@ -254,6 +259,24 @@ var Grid = (function () {
         return {};
       },
     });
+  }
+
+  // ── Container sizing ─────────────────────────────────────
+  // HOT requires an explicit pixel height on its mount element.
+  // Calculate it from the viewport minus header and status bar.
+
+  function _fitContainer() {
+    var container  = document.getElementById('grid-container');
+    var header     = document.getElementById('app-header');
+    var statusbar  = document.getElementById('app-statusbar');
+    if (!container) return;
+
+    var usedHeight = (header    ? header.offsetHeight    : 48)
+                   + (statusbar ? statusbar.offsetHeight : 28);
+    var h = window.innerHeight - usedHeight;
+    container.style.height = h + 'px';
+
+    if (_hot) _hot.render();
   }
 
   // ── Row save ──────────────────────────────────────────────
@@ -394,16 +417,13 @@ var Grid = (function () {
       '}',
 
       // ── Grid container fills body ────────────────────────────
+      // HOT needs an explicit pixel height on the mount div.
+      // We set it via JS after render so it always matches the
+      // actual available space.
       '#grid-container {',
-        'flex: 1;',
-        'overflow: hidden;',
         'position: relative;',
-      '}',
-
-      // Force HOT to fill container fully
-      '#grid-container .handsontable,',
-      '#grid-container .wtHolder {',
-        'height: 100% !important;',
+        'overflow: hidden;',
+        // flex:1 alone is not enough for HOT — height is set by _fitContainer()
       '}',
 
       // ── Cell overrides ───────────────────────────────────────
