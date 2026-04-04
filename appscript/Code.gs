@@ -47,78 +47,98 @@ var SHEET_CHANGES  = 'Changes';
 
 // ── Column definitions ────────────────────────────────────────
 //
-// 43 columns total:
-//   indices  0–25  → 26 coordinator-visible columns
-//   index    26    → coordinator_name (ownership column)
-//   indices 27–42  → 16 invoicing-only columns
+// 43 columns total — matches the original Excel exactly.
+//
+// Hidden from ALL grid views (sheet only):
+//   row_num (index 1) — internal row reference, never shown in UI
+//
+// Coordinator sees 25 columns (all coordinator cols minus
+//   row_num and coordinator_name).
+// Invoicing + Manager see 42 columns (all minus row_num).
 //
 // These keys are used as the header row in the Data tab.
-// Display labels for the grid are defined in js/grid.js.
+// Display labels are defined in js/grid.js.
 
 var ALL_COLUMNS = [
-  // ── Coordinator columns (0–25) ──
-  'id',                 //  0  ID# (auto-generated)
-  'logical_site_id',    //  1  Logical Site ID
-  'site_name',          //  2  Site Name
-  'region',             //  3  Region
-  'job_code',           //  4  Job Code (JC)
-  'job_type',           //  5  Job Type
-  'vendor',             //  6  Vendor
-  'contractor',         //  7  Contractor
-  'task_date',          //  8  Task Date (drives price version)
-  'task_description',   //  9  Task Description
-  'scope_of_work',      // 10  Scope of Work
-  'actual_quantity',    // 11  Actual Quantity
-  'unit',               // 12  Unit
-  'new_price',          // 13  New Price (version-driven)
-  'new_total_price',    // 14  New Total Price (auto-calc)
-  'lmp_portion',        // 15  LMP Portion (auto-calc)
-  'contractor_portion', // 16  Contractor Portion (auto-calc)
-  'po_status',          // 17  PO Status
-  'tsr_sub',            // 18  TSR Sub#
-  'notes',              // 19  Notes
-  'created_date',       // 20  Created Date
-  'last_modified',      // 21  Last Modified (delta sync anchor)
-  'work_order',         // 22  Work Order #
-  'priority',           // 23  Priority
-  'status',             // 24  Status
-  'comments',           // 25  Comments
+  // ── Coordinator-side columns (0–26) ──
+  'id',                         //  0  ID# (auto-generated)
+  'row_num',                    //  1  Row — sheet only, hidden from all grid views
+  'job_code',                   //  2  Job Code
+  'tx_rf',                      //  3  TX/RF
+  'vendor',                     //  4  Vendor
+  'physical_site_id',           //  5  Physical Site ID
+  'logical_site_id',            //  6  Logical Site ID
+  'site_option',                //  7  Site Option
+  'facing',                     //  8  Facing
+  'region',                     //  9  Region
+  'sub_region',                 // 10  Sub Region
+  'distance',                   // 11  Distance
+  'absolute_quantity',          // 12  Absolute Quantity
+  'actual_quantity',            // 13  Actual Quantity
+  'general_stream',             // 14  General Stream
+  'task_name',                  // 15  Task Name
+  'contractor',                 // 16  Contractor
+  'engineer_name',              // 17  Engineer's Name
+  'line_item',                  // 18  Line Item
+  'new_price',                  // 19  New Price
+  'new_total_price',            // 20  New Total Price (auto-calc)
+  'comments',                   // 21  Comments
+  'status',                     // 22  Status
+  'task_date',                  // 23  Task Date (drives price version)
+  'vf_task_owner',              // 24  VF Task Owner
+  'prq',                        // 25  PRQ
 
   // ── Ownership column (26) ──
-  'coordinator_name',   // 26  Coordinator (hidden from coordinator role)
+  'coordinator_name',           // 26  Coordinator — hidden from coordinator, read-only for invoicing
 
   // ── Invoicing columns (27–42) ──
-  'invoice_number',     // 27  Invoice #
-  'invoice_date',       // 28  Invoice Date
-  'invoice_amount',     // 29  Invoice Amount
-  'invoice_status',     // 30  Invoice Status
-  'acceptance_status',  // 31  Acceptance Status ← lock trigger
-  'acceptance_date',    // 32  Acceptance Date
-  'acceptance_notes',   // 33  Acceptance Notes
-  'po_number',          // 34  PO Number
-  'po_date',            // 35  PO Date
-  'payment_status',     // 36  Payment Status
-  'payment_date',       // 37  Payment Date
-  'payment_amount',     // 38  Payment Amount
-  'billing_code',       // 39  Billing Code
-  'gl_code',            // 40  GL Code
-  'cost_center',        // 41  Cost Center
-  'finance_notes'       // 42  Finance Notes
+  'acceptance_status',          // 27  Acceptance Status ← row lock trigger
+  'fac_date',                   // 28  FAC Date
+  'certificate_num',            // 29  Certificate #
+  'acceptance_week',            // 30  Acceptance Week
+  'tsr_sub',                    // 31  TSR Sub#
+  'po_status',                  // 32  PO Status
+  'po_number',                  // 33  PO Number
+  'vf_invoice_num',             // 34  VF Invoice #
+  'first_receiving_date',       // 35  1st Receiving Date
+  'lmp_portion',                // 36  LMP Portion (auto-calc)
+  'contractor_portion',         // 37  Contractor Portion (auto-calc)
+  'sent_to_cost_control',       // 38  Sent to Cost Control
+  'received_from_cc',           // 39  Received from CC
+  'contractor_invoice_num',     // 40  Contractor Invoice #
+  'vf_invoice_submission_date', // 41  VF Invoice Submission Date
+  'cash_received_date'          // 42  Cash Received Date
 ];
 
-// Keys visible to coordinator role (indices 0–25 only)
-var COORDINATOR_VISIBLE_KEYS = ALL_COLUMNS.slice(0, 26);
+// Keys the coordinator role can see in the grid.
+// Excludes: row_num (hidden from all) and coordinator_name (hidden from coordinator).
+var COORDINATOR_VISIBLE_KEYS = [
+  'id', 'job_code', 'tx_rf', 'vendor', 'physical_site_id',
+  'logical_site_id', 'site_option', 'facing', 'region', 'sub_region',
+  'distance', 'absolute_quantity', 'actual_quantity', 'general_stream',
+  'task_name', 'contractor', 'engineer_name', 'line_item', 'new_price',
+  'new_total_price', 'comments', 'status', 'task_date', 'vf_task_owner', 'prq'
+]; // 25 columns
 
-// Keys stripped from coordinator responses: coordinator_name + all invoicing columns
-// Built as a plain object for fast key lookup (no Set required)
+// Keys stripped from coordinator API responses:
+//   row_num + coordinator_name + all 16 invoicing columns
 var COORDINATOR_STRIPPED_KEYS = (function () {
   var stripped = {};
-  var hidden = ALL_COLUMNS.slice(26); // indices 26–42
-  for (var i = 0; i < hidden.length; i++) {
-    stripped[hidden[i]] = true;
+  // Everything not in COORDINATOR_VISIBLE_KEYS gets stripped
+  var visible = {};
+  for (var v = 0; v < COORDINATOR_VISIBLE_KEYS.length; v++) {
+    visible[COORDINATOR_VISIBLE_KEYS[v]] = true;
+  }
+  for (var a = 0; a < ALL_COLUMNS.length; a++) {
+    if (!visible[ALL_COLUMNS[a]]) stripped[ALL_COLUMNS[a]] = true;
   }
   return stripped;
 }());
+
+// Keys visible to invoicing + manager: all except row_num
+var INVOICING_MANAGER_VISIBLE_KEYS = ALL_COLUMNS.filter(function (k) {
+  return k !== 'row_num';
+});
 
 
 // ── Entry points ──────────────────────────────────────────────
@@ -359,7 +379,7 @@ function getRows(role, coordinatorName) {
 }
 
 function getVisibleColumns(role) {
-  return (role === 'coordinator') ? COORDINATOR_VISIBLE_KEYS : ALL_COLUMNS;
+  return (role === 'coordinator') ? COORDINATOR_VISIBLE_KEYS : INVOICING_MANAGER_VISIBLE_KEYS;
 }
 
 function buildColumnIndexMap(headers) {
@@ -537,19 +557,19 @@ function testAuthInvalid() {
 function testGetRowsAsCoordinator() {
   var result = getRows('coordinator', 'Alice');
   Logger.log('Row count : ' + result.rows.length);
-  Logger.log('Col count : ' + result.columns.length + '  (expect 26)');
+  Logger.log('Col count : ' + result.columns.length + '  (expect 25)');
   Logger.log('Columns   : ' + JSON.stringify(result.columns));
-  // Verify: coordinator_name, invoice_*, acceptance_* must NOT appear in columns
+  // Verify: row_num, coordinator_name, acceptance_status etc must NOT appear
 }
 
 function testGetRowsAsInvoicing() {
   var result = getRows('invoicing', 'Bob');
   Logger.log('Row count : ' + result.rows.length);
-  Logger.log('Col count : ' + result.columns.length + '  (expect 43)');
+  Logger.log('Col count : ' + result.columns.length + '  (expect 42)');
 }
 
 function testGetRowsAsManager() {
   var result = getRows('manager', 'Carol');
   Logger.log('Row count : ' + result.rows.length);
-  Logger.log('Col count : ' + result.columns.length + '  (expect 43)');
+  Logger.log('Col count : ' + result.columns.length + '  (expect 42)');
 }
