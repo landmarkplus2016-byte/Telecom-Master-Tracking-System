@@ -154,6 +154,9 @@ var Grid = (function () {
     // Add Row — all roles
     buttons.push('<button class="tb-btn tb-btn--primary" id="tb-add-row">+ New Row</button>');
 
+    // Refresh — all roles (replaced by delta sync in Stage 3)
+    buttons.push('<button class="tb-btn" id="tb-refresh">&#8635; Refresh</button>');
+
     // Export — all roles (Stage 4, wired as stub)
     buttons.push('<button class="tb-btn" id="tb-export">Export</button>');
 
@@ -177,6 +180,38 @@ var Grid = (function () {
         _hot.selectCell(_hot.countRows() - 1, 0);
       });
     }
+
+    // Refresh handler — re-fetches all rows from Apps Script
+    var refreshBtn = document.getElementById('tb-refresh');
+    if (refreshBtn) {
+      refreshBtn.addEventListener('click', function () {
+        _refreshData(refreshBtn);
+      });
+    }
+  }
+
+  // ── Manual data refresh ───────────────────────────────────
+  // Fetches all rows fresh from Apps Script and reloads the grid.
+  // Replaced by delta sync (last_modified polling) in Stage 3.
+
+  function _refreshData(btn) {
+    if (btn) {
+      btn.disabled = true;
+      btn.textContent = 'Refreshing\u2026';
+    }
+    Sheets.fetchAllRows(function (result) {
+      if (btn) {
+        btn.disabled = false;
+        btn.innerHTML = '&#8635; Refresh';
+      }
+      if (!result.success) {
+        console.error('[grid.js] refresh failed:', result.error);
+        _showSaveError('Refresh failed: ' + result.error);
+        return;
+      }
+      console.log('[grid.js] refresh — rows received:', result.rows.length);
+      loadData(result.rows);
+    });
   }
 
   // ── Handsontable init ─────────────────────────────────────
