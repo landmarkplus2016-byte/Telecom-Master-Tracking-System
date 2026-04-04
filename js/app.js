@@ -65,20 +65,33 @@
     // Init grid (renders columns and toolbar for this role)
     Grid.init(role, name);
 
-    // Fetch all rows from Apps Script and load into grid
-    _setLoadingStatus('Loading data\u2026');
-    Sheets.fetchAllRows(function (result) {
-      _hide('screen-loading');
-      if (!result.success) {
-        console.error('[app.js] fetchAllRows failed:', result.error);
-        _showError('Could not load data: ' + result.error);
-        return;
+    // Fetch price config first, then rows.
+    // Pricing must be initialised before Grid.loadData so that
+    // auto-calculations and indicators are applied on first render.
+    _setLoadingStatus('Loading config\u2026');
+    Sheets.fetchConfig(function (configResult) {
+      if (configResult.success) {
+        Pricing.init(configResult);
+      } else {
+        // Non-fatal: pricing degrades gracefully with no config data
+        console.warn('[app.js] fetchConfig failed:', configResult.error, '— pricing disabled');
+        Pricing.init(null);
       }
-      console.log('[app.js] fetchAllRows — rows received:', result.rows.length);
-      if (result.rows.length > 0) {
-        console.log('[app.js] first row sample:', JSON.stringify(result.rows[0]));
-      }
-      Grid.loadData(result.rows);
+
+      _setLoadingStatus('Loading data\u2026');
+      Sheets.fetchAllRows(function (result) {
+        _hide('screen-loading');
+        if (!result.success) {
+          console.error('[app.js] fetchAllRows failed:', result.error);
+          _showError('Could not load data: ' + result.error);
+          return;
+        }
+        console.log('[app.js] fetchAllRows — rows received:', result.rows.length);
+        if (result.rows.length > 0) {
+          console.log('[app.js] first row sample:', JSON.stringify(result.rows[0]));
+        }
+        Grid.loadData(result.rows);
+      });
     });
   }
 

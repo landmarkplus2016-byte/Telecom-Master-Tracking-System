@@ -49,11 +49,13 @@ var Grid = (function () {
     { key: 'contractor',                 label: 'Contractor',                width: 130, type: 'text'    },
     { key: 'engineer_name',              label: "Engineer's Name",           width: 140, type: 'text'    },
     { key: 'line_item',                  label: 'Line Item',                 width: 110, type: 'text'    },
-    { key: 'new_price',                  label: 'New Price',                 width: 110, type: 'numeric', numericFormat: { pattern: '$0,0.00' } },
+    { key: 'new_price',                  label: 'New Price',                 width: 110, type: 'numeric', numericFormat: { pattern: '$0,0.00' }, readOnly: ['coordinator', 'invoicing'] },
     { key: 'new_total_price',            label: 'New Total Price',           width: 130, type: 'numeric', numericFormat: { pattern: '$0,0.00' }, readOnly: ['coordinator', 'invoicing', 'manager'] },
     { key: 'comments',                   label: 'Comments',                  width: 200, type: 'text'    },
     { key: 'status',                     label: 'Status',                    width: 110, type: 'text'    },
     { key: 'task_date',                  label: 'Task Date',                 width: 110, type: 'date',   dateFormat: 'DD-MMM-YYYY' },
+    // ── Pricing indicator — computed client-side, never saved to sheet ──
+    { key: '_price_indicator',           label: '●',                         width:  42, type: 'text',   readOnly: ['coordinator', 'invoicing', 'manager'] },
     { key: 'vf_task_owner',              label: 'VF Task Owner',             width: 130, type: 'text'    },
     { key: 'prq',                        label: 'PRQ',                       width:  90, type: 'text'    },
 
@@ -140,6 +142,14 @@ var Grid = (function () {
     // mapping, not array index, when columns[i].data is set.
     _hot.loadData(_data);
     _updateRowCount(_data.length);
+
+    // Apply pricing calculations and indicators to every loaded row.
+    // Pricing must be initialised (Pricing.init called) before loadData.
+    if (typeof Pricing !== 'undefined' && Pricing.isReady()) {
+      for (var i = 0; i < _data.length; i++) {
+        _applyPricing(i);
+      }
+    }
   }
 
   // Convert any date string (YYYY-MM-DD or ISO datetime) to DD-MMM-YYYY.
@@ -301,27 +311,52 @@ var Grid = (function () {
       // After a cell is edited, save the row to Apps Script.
       // Debounced per row — prevents duplicate appends when the user
       // edits multiple cells before the first save callback returns.
+      //
+      // Sources filtered:
+      //   'loadData' — bulk load, never save
+      //   'pricing'  — programmatic pricing updates (set by _applyPricing);
+      //                filtering prevents re-entrancy; the original user edit
+      //                already has a debounced save in flight that will capture
+      //                all the pricing values written synchronously before it fires
       afterChange: function (changes, source) {
-        if (!changes || source === 'loadData') return;
+        if (!changes || source === 'loadData' || source === 'pricing') return;
 
-        var self     = this; // HOT instance
+        var self      = this; // HOT instance
         var dirtyRows = {};
+
+        // Columns whose changes require a pricing recalculation
+        var PRICING_COLS = {
+          line_item:       true,
+          task_date:       true,
+          new_price:       true,
+          actual_quantity: true,
+          contractor:      true
+        };
 
         changes.forEach(function (change) {
           var rowIdx = change[0];
           var colKey = change[1]; // property name when columns use data:'key'
           dirtyRows[rowIdx] = true;
 
-          // Auto-generate ID when job_code is entered and id is still empty.
-          // ID.tryGenerate returns null if conditions aren't met (guards itself).
+          // ── ID auto-generation ───────────────────────────────
           if (colKey === 'job_code' && typeof ID !== 'undefined') {
             var sourceRow = self.getSourceDataAtRow(rowIdx) || {};
             var newId     = ID.tryGenerate(sourceRow, rowIdx);
             if (newId) {
-              // 'id_autofill' source: afterChange fires again for the id cell,
-              // which is fine — the debounce will bundle it with job_code save.
               self.setDataAtRowProp(rowIdx, 'id', newId, 'id_autofill');
             }
+          }
+
+          // ── Pricing recalculation ─────────────────────────────
+          if (PRICING_COLS[colKey] && typeof Pricing !== 'undefined' && Pricing.isReady()) {
+            var prevVersion = null;
+            if (colKey === 'task_date') {
+              // Capture the pre-change row to detect a version switch
+              var old = self.getSourceDataAtRow(rowIdx) || {};
+              prevVersion = Pricing.resolveVersion(old.task_date);
+            }
+
+            _applyPricing(rowIdx, prevVersion);
           }
         });
 
@@ -423,6 +458,108 @@ var Grid = (function () {
 
       console.log('[grid.js] Row saved — sheet row:', result.rowIndex);
     });
+  }
+
+  // ── Pricing ───────────────────────────────────────────────
+
+  // Apply pricing calculations and indicator to a single grid row.
+  //
+  // rowIdx      — 0-based HOT row index
+  // prevVersion — version name that was active BEFORE the triggering
+  //               change (only passed when task_date changed); used to
+  //               detect and warn about a version switch.
+  //
+  // All writes use source='pricing' so afterChange ignores them,
+  // preventing re-entrancy. Writes are synchronous, so by the time
+  // _scheduleSave fires the source row already has the final values.
+
+  function _applyPricing(rowIdx, prevVersion) {
+    if (!_hot || !Pricing.isReady()) return;
+
+    var row        = _hot.getSourceDataAtRow(rowIdx) || {};
+    var taskDate   = String(row.task_date   || '').trim();
+    var lineItem   = String(row.line_item   || '').trim();
+    var actualQty  = row.actual_quantity;
+    var contractor = String(row.contractor  || '').trim();
+
+    // ── Auto-fill new_price from price list (non-manager roles only) ──
+    // Managers can override new_price manually; for other roles the field
+    // is readOnly so any value here was set by pricing, not the user.
+    if (_role !== 'manager') {
+      var looked = Pricing.lookupPrice(lineItem, taskDate);
+      if (looked !== null) {
+        var cur = parseFloat(row.new_price) || 0;
+        if (Math.abs(cur - looked) > 0.001) {
+          _hot.setDataAtRowProp(rowIdx, 'new_price', looked, 'pricing');
+          row.new_price = looked; // keep local copy in sync for total calc below
+        }
+      }
+    }
+
+    // ── Warn on version switch when task_date changes ─────────────
+    if (prevVersion !== undefined) {
+      var newVersion = Pricing.resolveVersion(taskDate);
+      if (newVersion && prevVersion !== null && newVersion !== prevVersion) {
+        _showPricingToast(
+          'Price version changed: ' + prevVersion + ' \u2192 ' + newVersion +
+          '. New price updated automatically.'
+        );
+      }
+    }
+
+    // ── Calculate derived totals ──────────────────────────────────
+    var newPrice = parseFloat(row.new_price) || 0;
+    var totals   = Pricing.calculateTotals(newPrice, actualQty, contractor);
+
+    _hot.setDataAtRowProp(rowIdx, 'new_total_price', totals.newTotalPrice, 'pricing');
+
+    // lmp_portion and contractor_portion are invoicing/manager-only columns
+    if (_role === 'invoicing' || _role === 'manager') {
+      _hot.setDataAtRowProp(rowIdx, 'lmp_portion',        totals.lmpPortion,        'pricing');
+      _hot.setDataAtRowProp(rowIdx, 'contractor_portion', totals.contractorPortion, 'pricing');
+    }
+
+    // ── Visual indicator ──────────────────────────────────────────
+    // Re-read row after updates for accurate indicator
+    var updatedRow  = _hot.getSourceDataAtRow(rowIdx) || {};
+    var indicator   = Pricing.getIndicator(updatedRow);
+    _hot.setDataAtRowProp(rowIdx, '_price_indicator', indicator.icon, 'pricing');
+  }
+
+  // Non-blocking toast for pricing events (version change warning).
+  function _showPricingToast(msg) {
+    var existing = document.getElementById('pricing-toast');
+    if (existing) existing.remove();
+
+    var toast = document.createElement('div');
+    toast.id = 'pricing-toast';
+    toast.textContent = msg;
+    document.body.appendChild(toast);
+    setTimeout(function () { if (toast.parentNode) toast.remove(); }, 5000);
+
+    // Inject styles on first use
+    if (!document.getElementById('pricing-toast-styles')) {
+      var s = document.createElement('style');
+      s.id = 'pricing-toast-styles';
+      s.textContent = [
+        '#pricing-toast {',
+          'position: fixed;',
+          'bottom: 40px;',
+          'left: 50%;',
+          'transform: translateX(-50%);',
+          'background: var(--bg-navy);',
+          'color: var(--text-on-navy);',
+          'font-family: var(--font-body);',
+          'font-size: 13px;',
+          'padding: 10px 20px;',
+          'border: 1px solid var(--accent);',
+          'box-shadow: 0 4px 16px rgba(0,0,0,0.25);',
+          'z-index: 2000;',
+          'white-space: nowrap;',
+        '}',
+      ].join('\n');
+      document.head.appendChild(s);
+    }
   }
 
   // ── Context menu ──────────────────────────────────────────

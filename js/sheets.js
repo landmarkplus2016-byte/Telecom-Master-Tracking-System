@@ -75,6 +75,23 @@ var Sheets = (function () {
     );
   }
 
+  // ── Public: Fetch price config ───────────────────────────
+
+  /**
+   * Load price versions, price list, and contractor splits from
+   * the Config tab. Called once on app startup before loading rows.
+   *
+   * callback({ success, versions, priceList, contractorSplits })
+   * callback({ success:false, error })
+   */
+  function fetchConfig(callback) {
+    _post(
+      { action: 'getConfig' },
+      { isColdStartCandidate: false, label: 'Loading config' },
+      callback
+    );
+  }
+
   // ── Public: Write a single row ────────────────────────────
 
   /**
@@ -299,6 +316,7 @@ var Sheets = (function () {
 
   return {
     authenticate: authenticate,
+    fetchConfig:  fetchConfig,
     fetchAllRows: fetchAllRows,
     writeRow:     writeRow
   };

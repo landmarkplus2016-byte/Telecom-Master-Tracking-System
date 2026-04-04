@@ -180,6 +180,9 @@ function handleRequest(e) {
       case 'writeRow':
         return jsonResponse(writeRow(params.row, authResult.role, authResult.name));
 
+      case 'getConfig':
+        return jsonResponse(getConfigData());
+
       default:
         return jsonResponse({ success: false, error: 'Unknown action: ' + params.action });
     }
@@ -536,6 +539,117 @@ function writeRow(rowData, role, coordinatorName) {
     var newRowIndex = dataSheet.getLastRow();
     return { success: true, rowIndex: newRowIndex, timestamp: now };
   }
+}
+
+
+// ── Config tab — price data ────────────────────────────────────
+//
+// Reads three sections from the Config tab and returns structured data
+// for the pricing module. Sections end with a blank cell in column A.
+//
+// Required Config tab layout:
+//
+//   [PRICE_VERSIONS]
+//   Version  | Effective_Date | Notes (optional)
+//   2024     | 01-Apr-2024    |
+//   2025     | 01-Apr-2025    |
+//
+//   [PRICE_LIST]
+//   Version  | Line_Item | Unit_Price
+//   2024     | MW001     | 5000
+//   2025     | MW001     | 5500
+//
+//   [CONTRACTOR_SPLITS]
+//   Contractor | LMP_Pct | Contractor_Pct
+//   In-House   | 100     | 0
+//   Ericsson   | 70      | 30
+
+function getConfigData() {
+  var ss     = SpreadsheetApp.getActiveSpreadsheet();
+  var config = ss.getSheetByName(SHEET_CONFIG);
+  if (!config) {
+    return { success: true, versions: [], priceList: [], contractorSplits: [] };
+  }
+
+  var data             = config.getDataRange().getValues();
+  var versions         = [];
+  var priceList        = [];
+  var contractorSplits = [];
+
+  var section    = null;
+  var headerSeen = false;
+  var colMap     = {};
+
+  for (var i = 0; i < data.length; i++) {
+    var rowLabel = String(data[i][0]).trim();
+
+    // Section markers
+    if (rowLabel === '[PRICE_VERSIONS]' ||
+        rowLabel === '[PRICE_LIST]'     ||
+        rowLabel === '[CONTRACTOR_SPLITS]') {
+      section    = rowLabel;
+      headerSeen = false;
+      colMap     = {};
+      continue;
+    }
+
+    if (!section) continue;
+
+    // Blank row in column A ends the current section
+    if (rowLabel === '') { section = null; continue; }
+
+    // First non-blank row after the marker is the column header
+    if (!headerSeen) {
+      headerSeen = true;
+      var hdrs = data[i].map(function (h) {
+        return String(h).trim().toLowerCase().replace(/\s+/g, '_');
+      });
+      for (var h = 0; h < hdrs.length; h++) {
+        if (hdrs[h]) colMap[hdrs[h]] = h;
+      }
+      continue;
+    }
+
+    // Data rows — skip entirely blank rows
+    var rowEmpty = true;
+    for (var c = 0; c < data[i].length; c++) {
+      if (data[i][c] !== '' && data[i][c] !== null) { rowEmpty = false; break; }
+    }
+    if (rowEmpty) continue;
+
+    var row = data[i];
+
+    if (section === '[PRICE_VERSIONS]') {
+      var ver     = String(row[colMap['version']        !== undefined ? colMap['version']        : 0] || '').trim();
+      var effDate = row [colMap['effective_date']       !== undefined ? colMap['effective_date']  : 1];
+      if (ver) {
+        versions.push({ version: ver, effectiveDate: formatCell(effDate) });
+      }
+
+    } else if (section === '[PRICE_LIST]') {
+      var pVer  = String(row[colMap['version']   !== undefined ? colMap['version']   : 0] || '').trim();
+      var pItem = String(row[colMap['line_item']  !== undefined ? colMap['line_item'] : 1] || '').trim();
+      var pAmt  = Number(row[colMap['unit_price'] !== undefined ? colMap['unit_price']: 2])  || 0;
+      if (pVer && pItem) {
+        priceList.push({ version: pVer, lineItem: pItem, unitPrice: pAmt });
+      }
+
+    } else if (section === '[CONTRACTOR_SPLITS]') {
+      var cName   = String(row[colMap['contractor']      !== undefined ? colMap['contractor']      : 0] || '').trim();
+      var cLmp    = Number(row[colMap['lmp_pct']         !== undefined ? colMap['lmp_pct']         : 1]) || 0;
+      var cConPct = Number(row[colMap['contractor_pct']  !== undefined ? colMap['contractor_pct']  : 2]) || 0;
+      if (cName) {
+        contractorSplits.push({ contractor: cName, lmpPct: cLmp, contractorPct: cConPct });
+      }
+    }
+  }
+
+  return {
+    success:          true,
+    versions:         versions,
+    priceList:        priceList,
+    contractorSplits: contractorSplits
+  };
 }
 
 
