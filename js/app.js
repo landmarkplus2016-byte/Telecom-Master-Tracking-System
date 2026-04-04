@@ -26,10 +26,17 @@
     var name = sessionStorage.getItem('app_name');
     var role = sessionStorage.getItem('app_role');
 
-    if (name && role) {
+    var code = sessionStorage.getItem('app_code');
+    if (name && role && code) {
       console.log('[app.js] Session found — name:', name, 'role:', role);
       _showApp(name, role);
       return;
+    }
+
+    // Session incomplete (missing code) — clear and re-login
+    if (name || role) {
+      console.log('[app.js] Incomplete session — clearing and re-authenticating');
+      sessionStorage.clear();
     }
 
     console.log('[app.js] No session — handing off to Auth.init()');

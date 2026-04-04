@@ -218,9 +218,10 @@ var Auth = (function () {
         return;
       }
 
-      // Persist session
+      // Persist session — code is needed on every Sheets request
       sessionStorage.setItem('app_name', result.name);
       sessionStorage.setItem('app_role', result.role);
+      sessionStorage.setItem('app_code', code);
 
       // Hide login, fire callback
       _hide('screen-login');
