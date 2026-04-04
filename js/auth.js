@@ -76,8 +76,8 @@ var Auth = (function () {
   // spinner placeholder until names arrive)
   function setTeamNames(names) {
     _teamNames = names || [];
-    var select = document.getElementById('login-name-select');
-    if (select) _populateNameSelect(select);
+    // Names are no longer used to populate a dropdown — kept for
+    // future server-side validation reference only.
   }
 
   // ── Render ────────────────────────────────────────────────
@@ -115,15 +115,18 @@ var Auth = (function () {
 
               '<form id="login-form" autocomplete="off" novalidate>',
 
-                // Name dropdown
+                // Name text input
                 '<div class="login-field">',
                   '<label class="login-label" for="login-name-select">Your Name</label>',
-                  '<div class="login-select-wrap">',
-                    '<select id="login-name-select" class="login-select" required>',
-                      '<option value="" disabled selected>— Select your name —</option>',
-                    '</select>',
-                    '<span class="login-select-chevron">&#9660;</span>',
-                  '</div>',
+                  '<input',
+                    ' id="login-name-select"',
+                    ' class="login-input"',
+                    ' type="text"',
+                    ' placeholder="Enter your full name"',
+                    ' autocomplete="off"',
+                    ' spellcheck="false"',
+                    ' required',
+                  '>',
                 '</div>',
 
                 // Access code
@@ -162,15 +165,11 @@ var Auth = (function () {
       '</div>'
     ].join('');
 
-    // Populate names if already available
-    var select = document.getElementById('login-name-select');
-    if (_teamNames.length) _populateNameSelect(select);
-
     // Wire form submission
     document.getElementById('login-form').addEventListener('submit', _handleSubmit);
 
     // Clear error on any input change
-    document.getElementById('login-name-select').addEventListener('change', _clearError);
+    document.getElementById('login-name-select').addEventListener('input', _clearError);
     document.getElementById('login-code-input').addEventListener('input', _clearError);
   }
 
@@ -193,11 +192,11 @@ var Auth = (function () {
   function _handleSubmit(e) {
     e.preventDefault();
 
-    var name = document.getElementById('login-name-select').value;
+    var name = (document.getElementById('login-name-select').value || '').trim();
     var code = document.getElementById('login-code-input').value.trim();
 
     if (!name) {
-      _showError('Please select your name from the list.');
+      _showError('Please enter your name.');
       return;
     }
     if (!code) {
