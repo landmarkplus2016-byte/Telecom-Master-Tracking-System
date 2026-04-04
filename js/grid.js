@@ -119,6 +119,20 @@ var Grid = (function () {
   function loadData(rows) {
     console.log('[grid.js] loadData() — rows:', rows.length);
     _data = rows || [];
+
+    // Normalize all date column values to DD-MMM-YYYY before HOT sees them.
+    // HOT's correctFormat only fires on user edits, not on loadData, so raw
+    // ISO strings (e.g. "2026-04-12T22:00:00.000Z") would display unformatted.
+    var dateKeys = {};
+    _visibleCols.forEach(function (col) {
+      if (col.type === 'date') dateKeys[col.key] = true;
+    });
+    _data.forEach(function (row) {
+      Object.keys(dateKeys).forEach(function (key) {
+        if (row[key]) row[key] = _normalizeDate(row[key]);
+      });
+    });
+
     if (!_hot) return;
 
     // HOT columns are configured with data:'key' — pass objects directly.
@@ -126,6 +140,28 @@ var Grid = (function () {
     // mapping, not array index, when columns[i].data is set.
     _hot.loadData(_data);
     _updateRowCount(_data.length);
+  }
+
+  // Convert any date string (YYYY-MM-DD or ISO datetime) to DD-MMM-YYYY.
+  // Used only for display normalisation on load — storage format is unchanged.
+  function _normalizeDate(val) {
+    if (!val) return val;
+    var s = String(val).trim();
+
+    // ISO datetime: "2026-04-12T22:00:00.000Z" → strip time, keep date
+    if (/^\d{4}-\d{2}-\d{2}T/.test(s)) {
+      s = s.slice(0, 10); // gives "YYYY-MM-DD" (UTC date; good enough for display)
+    }
+
+    // YYYY-MM-DD → DD-MMM-YYYY
+    var m = s.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+    if (m) {
+      var months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+      var mon = months[parseInt(m[2], 10) - 1];
+      if (mon) return m[3] + '-' + mon + '-' + m[1];
+    }
+
+    return val; // already formatted or unparseable — leave as-is
   }
 
   // ── Column filtering by role ──────────────────────────────

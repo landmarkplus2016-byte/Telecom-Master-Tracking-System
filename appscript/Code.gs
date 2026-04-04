@@ -393,13 +393,23 @@ function buildColumnIndexMap(headers) {
 }
 
 function formatCell(value) {
+  var tz = SpreadsheetApp.getActiveSpreadsheet().getSpreadsheetTimeZone();
+
+  // Google Sheets Date object → format in sheet's timezone
   if (value instanceof Date) {
-    // Format in the spreadsheet's own timezone so dates are never off by one day
-    // due to UTC conversion (e.g. 2026-04-21 stored in sheet must not come back
-    // as 2026-04-20T22:00:00Z and then be sliced to "2026-04-20").
-    var tz = SpreadsheetApp.getActiveSpreadsheet().getSpreadsheetTimeZone();
     return Utilities.formatDate(value, tz, 'yyyy-MM-dd');
   }
+
+  // ISO datetime strings stored by old code (e.g. "2026-04-20T22:00:00.000Z")
+  // Parse and reformat in the sheet's timezone so there is no off-by-one-day error.
+  if (typeof value === 'string' && /^\d{4}-\d{2}-\d{2}T/.test(value)) {
+    try {
+      return Utilities.formatDate(new Date(value), tz, 'yyyy-MM-dd');
+    } catch (e) {
+      return value.slice(0, 10); // fallback: strip time part
+    }
+  }
+
   if (value === null || value === undefined) return '';
   return value;
 }
