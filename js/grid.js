@@ -303,10 +303,28 @@ var Grid = (function () {
       // edits multiple cells before the first save callback returns.
       afterChange: function (changes, source) {
         if (!changes || source === 'loadData') return;
+
+        var self     = this; // HOT instance
         var dirtyRows = {};
+
         changes.forEach(function (change) {
-          dirtyRows[change[0]] = true;
+          var rowIdx = change[0];
+          var colKey = change[1]; // property name when columns use data:'key'
+          dirtyRows[rowIdx] = true;
+
+          // Auto-generate ID when job_code is entered and id is still empty.
+          // ID.tryGenerate returns null if conditions aren't met (guards itself).
+          if (colKey === 'job_code' && typeof ID !== 'undefined') {
+            var sourceRow = self.getSourceDataAtRow(rowIdx) || {};
+            var newId     = ID.tryGenerate(sourceRow, rowIdx);
+            if (newId) {
+              // 'id_autofill' source: afterChange fires again for the id cell,
+              // which is fine — the debounce will bundle it with job_code save.
+              self.setDataAtRowProp(rowIdx, 'id', newId, 'id_autofill');
+            }
+          }
         });
+
         Object.keys(dirtyRows).forEach(function (rowIdx) {
           _scheduleSave(parseInt(rowIdx, 10));
         });
