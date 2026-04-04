@@ -75,6 +75,9 @@
         return;
       }
       console.log('[app.js] fetchAllRows — rows received:', result.rows.length);
+      if (result.rows.length > 0) {
+        console.log('[app.js] first row sample:', JSON.stringify(result.rows[0]));
+      }
       Grid.loadData(result.rows);
     });
   }
