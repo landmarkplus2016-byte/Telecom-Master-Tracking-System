@@ -117,6 +117,18 @@ var Pricing = (function () {
       });
     }
 
+    // ── Fallback distance multipliers ────────────────────
+    // Used when Config tab has no [DISTANCE_MULTIPLIERS] section.
+    // Values match the dropdown options and project spec exactly.
+    if (!_distMults.length) {
+      _distMults = [
+        { range_lower: '0km - 100km',   multiplier: 1    },
+        { range_lower: '100km - 400km', multiplier: 1.1  },
+        { range_lower: '400km - 800km', multiplier: 1.2  },
+        { range_lower: '> 800km',       multiplier: 1.25 }
+      ];
+    }
+
     _ready = true;
     console.log('[pricing.js] init() — versions:', _versions.length,
       '| price entries:', Object.keys(_priceMap).length,

@@ -42,9 +42,10 @@ var Grid = (function () {
     { key: 'region',                     label: 'Region',                    width: 100, type: 'dropdown' },
     { key: 'sub_region',                 label: 'Sub Region',                width: 110, type: 'dropdown' },
     { key: 'distance',                   label: 'Distance',                  width: 140, type: 'dropdown' },
-    // absolute_quantity is auto-calculated: actual_quantity × distance multiplier
-    { key: 'absolute_quantity',          label: 'Absolute Quantity',         width: 130, type: 'numeric',  readOnly: ['coordinator', 'invoicing', 'manager'] },
-    { key: 'actual_quantity',            label: 'Actual Quantity',           width: 120, type: 'numeric'  },
+    // absolute_quantity = "Quantity" — manually entered by the user
+    { key: 'absolute_quantity',          label: 'Quantity',                  width: 110, type: 'numeric'  },
+    // actual_quantity = "RC Quantity" — auto-calculated: Quantity × distance multiplier
+    { key: 'actual_quantity',            label: 'RC Quantity',               width: 110, type: 'numeric',  readOnly: ['coordinator', 'invoicing', 'manager'] },
     { key: 'general_stream',             label: 'General Stream',            width: 130, type: 'dropdown' },
     { key: 'task_name',                  label: 'Task Name',                 width: 200, type: 'dropdown' },
     { key: 'contractor',                 label: 'Contractor',                width: 130, type: 'dropdown' },
@@ -414,12 +415,12 @@ var Grid = (function () {
 
         // Columns whose changes require a pricing recalculation
         var PRICING_COLS = {
-          line_item:       true,
-          task_date:       true,
-          new_price:       true,
-          actual_quantity: true,
-          contractor:      true,
-          distance:        true
+          line_item:         true,
+          task_date:         true,
+          new_price:         true,
+          absolute_quantity: true,  // "Quantity" — manual input, drives RC Quantity
+          contractor:        true,
+          distance:          true
         };
 
         changes.forEach(function (change) {
@@ -566,21 +567,21 @@ var Grid = (function () {
     if (!_hot || !Pricing.isReady()) return;
 
     var row        = _hot.getSourceDataAtRow(rowIdx) || {};
-    var taskDate   = String(row.task_date   || '').trim();
-    var lineItem   = String(row.line_item   || '').trim();
-    var actualQty  = parseFloat(row.actual_quantity) || 0;
-    var contractor = String(row.contractor  || '').trim();
-    var distance   = String(row.distance    || '').trim();
+    var taskDate   = String(row.task_date        || '').trim();
+    var lineItem   = String(row.line_item        || '').trim();
+    var qty        = parseFloat(row.absolute_quantity) || 0;  // "Quantity" — manual
+    var contractor = String(row.contractor       || '').trim();
+    var distance   = String(row.distance         || '').trim();
 
-    // ── Auto-fill new_price from price list (non-manager roles only) ──
-    if (_role !== 'manager') {
-      var looked = Pricing.lookupPrice(lineItem, taskDate);
-      if (looked !== null) {
-        var cur = parseFloat(row.new_price) || 0;
-        if (Math.abs(cur - looked) > 0.001) {
-          _hot.setDataAtRowProp(rowIdx, 'new_price', looked, 'pricing');
-          row.new_price = looked;
-        }
+    // ── Auto-fill new_price from price list ───────────────────────
+    // All roles: price is always looked up when line_item changes.
+    // Manager can override new_price manually afterward.
+    var looked = Pricing.lookupPrice(lineItem, taskDate);
+    if (looked !== null) {
+      var cur = parseFloat(row.new_price) || 0;
+      if (Math.abs(cur - looked) > 0.001) {
+        _hot.setDataAtRowProp(rowIdx, 'new_price', looked, 'pricing');
+        row.new_price = looked;
       }
     }
 
@@ -595,19 +596,18 @@ var Grid = (function () {
       }
     }
 
-    // ── Absolute Quantity = Actual Quantity × Distance Multiplier ──
-    var distMult    = Pricing.getDistanceMultiplier(distance);
-    var absoluteQty = actualQty * distMult;
+    // ── RC Quantity = Quantity × Distance Multiplier (auto-calc) ──
+    var distMult = Pricing.getDistanceMultiplier(distance);
+    var rcQty    = qty * distMult;
 
-    // Only write if the value has actually changed (avoid thrashing)
-    var curAbsQty = parseFloat(row.absolute_quantity) || 0;
-    if (Math.abs(curAbsQty - absoluteQty) > 0.0001) {
-      _hot.setDataAtRowProp(rowIdx, 'absolute_quantity', absoluteQty || 0, 'pricing');
+    var curRcQty = parseFloat(row.actual_quantity) || 0;
+    if (Math.abs(curRcQty - rcQty) > 0.0001) {
+      _hot.setDataAtRowProp(rowIdx, 'actual_quantity', rcQty || 0, 'pricing');
     }
 
-    // ── Calculate derived totals (New Total Price = New Price × Absolute Qty) ──
+    // ── New Total Price = New Price × RC Quantity ─────────────────
     var newPrice = parseFloat(row.new_price) || 0;
-    var totals   = Pricing.calculateTotals(newPrice, absoluteQty, contractor);
+    var totals   = Pricing.calculateTotals(newPrice, rcQty, contractor);
 
     _hot.setDataAtRowProp(rowIdx, 'new_total_price', totals.newTotalPrice, 'pricing');
 
