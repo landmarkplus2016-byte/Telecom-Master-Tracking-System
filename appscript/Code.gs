@@ -606,8 +606,16 @@ function getConfigData() {
   for (var i = 0; i < data.length; i++) {
     var rowLabel = String(data[i][0]).trim();
 
-    if (rowLabel === '[CONTRACTOR_SPLITS]' || rowLabel === '[DISTANCE_MULTIPLIERS]') {
-      section    = rowLabel;
+    if (rowLabel === '[CONTRACTOR_SPLITS]' || /^\d+-contractor/i.test(rowLabel) ||
+        /contractor.?split/i.test(rowLabel)) {
+      section    = '[CONTRACTOR_SPLITS]';
+      headerSeen = false;
+      colMap     = {};
+      continue;
+    }
+    if (rowLabel === '[DISTANCE_MULTIPLIERS]' || /^\d+-distance/i.test(rowLabel) ||
+        /distance.?mult/i.test(rowLabel)) {
+      section    = '[DISTANCE_MULTIPLIERS]';
       headerSeen = false;
       colMap     = {};
       continue;

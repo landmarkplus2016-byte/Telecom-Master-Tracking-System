@@ -134,6 +134,22 @@ var Pricing = (function () {
       '| price entries:', Object.keys(_priceMap).length,
       '| splits:', _splits.length,
       '| distance multipliers:', _distMults.length);
+
+    // ── Diagnostic: show first 5 price map keys and all version names ──
+    // Helps verify that version names and line item strings match exactly.
+    var mapKeys = Object.keys(_priceMap);
+    if (mapKeys.length) {
+      console.log('[pricing.js] sample priceMap keys (first 5):', mapKeys.slice(0, 5));
+    }
+    if (_versions.length) {
+      console.log('[pricing.js] version names:', _versions.map(function (v) {
+        return '"' + v.name + '" (eff: ' + v.effectiveDate.toDateString() + ')';
+      }));
+    }
+    if (!_splits.length) {
+      console.warn('[pricing.js] No contractor splits loaded. ' +
+        'Add a [CONTRACTOR_SPLITS] section in the Config tab, or splits default to 100% LMP.');
+    }
   }
 
   function isReady() { return _ready; }
@@ -180,6 +196,11 @@ var Pricing = (function () {
     if (!version) return null;
     var key = version + '|' + String(lineItem).trim().toLowerCase();
     var price = _priceMap[key];
+    if (price === undefined) {
+      console.warn('[pricing.js] lookupPrice MISS — key:', JSON.stringify(key),
+        '| lineItem raw:', JSON.stringify(lineItem),
+        '| version:', version);
+    }
     return (price !== undefined) ? price : null;
   }
 

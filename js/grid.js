@@ -45,7 +45,7 @@ var Grid = (function () {
     // absolute_quantity = "Quantity" — manually entered by the user
     { key: 'absolute_quantity',          label: 'Quantity',                  width: 110, type: 'numeric'  },
     // actual_quantity = "RC Quantity" — auto-calculated: Quantity × distance multiplier
-    { key: 'actual_quantity',            label: 'RC Quantity',               width: 110, type: 'numeric',  readOnly: ['coordinator', 'invoicing', 'manager'] },
+    { key: 'actual_quantity',            label: 'RC Quantity',               width: 110, type: 'numeric',  numericFormat: { pattern: '0.00' }, readOnly: ['coordinator', 'invoicing', 'manager'] },
     { key: 'general_stream',             label: 'General Stream',            width: 130, type: 'dropdown' },
     { key: 'task_name',                  label: 'Task Name',                 width: 200, type: 'dropdown' },
     { key: 'contractor',                 label: 'Contractor',                width: 130, type: 'dropdown' },
@@ -392,6 +392,7 @@ var Grid = (function () {
       selectionMode:      'multiple',
       autoWrapRow:        false,
       autoWrapCol:        false,
+      rowHeights:         24,
       licenseKey:         'non-commercial-and-evaluation',
 
       // Freeze first 2 columns (ID + Logical Site ID)
@@ -795,13 +796,16 @@ var Grid = (function () {
         'border-color: var(--border) !important;',
       '}',
 
-      // Data cells
+      // Data cells — no wrap so rows stay compact like Excel
       '.handsontable td {',
         'font-family: var(--font-body) !important;',
         'font-size: 13px !important;',
         'color: var(--text-primary) !important;',
         'border-color: var(--border) !important;',
         'padding: 0 8px !important;',
+        'white-space: nowrap !important;',
+        'overflow: hidden;',
+        'text-overflow: ellipsis;',
       '}',
 
       // Read-only cells — very subtle background tint
