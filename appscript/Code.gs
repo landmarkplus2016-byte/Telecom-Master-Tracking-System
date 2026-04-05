@@ -594,67 +594,74 @@ function getConfigData() {
   // Scans entire sheet for "N-Price Versions" tables at any column.
   var priceResult = _parsePriceData(data);
 
-  // ── Pass 2: Col-A row-based sections ──────────────────────
+  // ── Pass 2: Contractor splits, distance multipliers, dropdowns ──
+  // Scans ALL cells in each row for section markers (not just col A).
+  // Needed because the Config tab may have these sections at any column
+  // (e.g. "4-Contractor Split Percentages" at column O on the same rows
+  //  as the price version tables in columns J-M).
   var contractorSplits    = [];
   var distanceMultipliers = [];
   var dropdowns           = {};
 
-  var section    = null;
-  var headerSeen = false;
-  var colMap     = {};
+  var section       = null;
+  var sectionCol    = 0;     // column where section header was found
+  var sectionEndCol = 0;     // rightmost column used by this section (for blank detection)
+  var headerSeen    = false;
+  var colMap        = {};
 
   for (var i = 0; i < data.length; i++) {
-    var rowLabel = String(data[i][0]).trim();
 
-    if (rowLabel === '[CONTRACTOR_SPLITS]' || /^\d+-contractor/i.test(rowLabel) ||
-        /contractor.?split/i.test(rowLabel)) {
-      section    = '[CONTRACTOR_SPLITS]';
-      headerSeen = false;
-      colMap     = {};
-      continue;
+    // ── Scan ALL cells in this row for a section title ────────
+    var newSectionFound = false;
+    for (var sc = 0; sc < data[i].length; sc++) {
+      var cell = String(data[i][sc]).trim();
+      if (!cell) continue;
+
+      var detected = null;
+      if      (cell === '[CONTRACTOR_SPLITS]'    || /contractor.?split/i.test(cell))  detected = '[CONTRACTOR_SPLITS]';
+      else if (cell === '[DISTANCE_MULTIPLIERS]' || /distance.?mult/i.test(cell))     detected = '[DISTANCE_MULTIPLIERS]';
+      else if (cell === '[DROPDOWNS]'            || /^\d+-dropdown/i.test(cell)
+                                                 || cell.toLowerCase() === 'dropdowns'
+                                                 || /\bdropdown\s+list/i.test(cell))  detected = '[DROPDOWNS]';
+
+      if (detected) {
+        section       = detected;
+        sectionCol    = sc;
+        sectionEndCol = sc;
+        headerSeen    = false;
+        colMap        = {};
+        newSectionFound = true;
+        break;
+      }
     }
-    if (rowLabel === '[DISTANCE_MULTIPLIERS]' || /^\d+-distance/i.test(rowLabel) ||
-        /distance.?mult/i.test(rowLabel)) {
-      section    = '[DISTANCE_MULTIPLIERS]';
-      headerSeen = false;
-      colMap     = {};
-      continue;
-    }
-    if (rowLabel === '[DROPDOWNS]' || /dropdown/i.test(rowLabel)) {
-      section    = '[DROPDOWNS]';
-      headerSeen = false;
-      colMap     = {};
-      continue;
-    }
+    if (newSectionFound) continue;
 
     if (!section) continue;
-
-    // Blank col A ends non-dropdown sections.
-    // For dropdown sections (columnar), only end when the entire row is blank.
-    if (rowLabel === '') {
-      if (section !== '[DROPDOWNS]') { section = null; continue; }
-      var entirelyBlank = true;
-      for (var eb = 0; eb < data[i].length; eb++) {
-        if (data[i][eb] !== '' && data[i][eb] !== null) { entirelyBlank = false; break; }
-      }
-      if (entirelyBlank) { section = null; continue; }
-    }
 
     // ── [DROPDOWNS] — columnar: header row = field display names ──
     if (section === '[DROPDOWNS]') {
       if (!headerSeen) {
         headerSeen = true;
-        for (var d = 0; d < data[i].length; d++) {
+        for (var d = sectionCol; d < data[i].length; d++) {
           var dlabel = String(data[i][d]).trim();
-          if (dlabel) {
-            var fk = dlabel.toLowerCase()
-              .replace(/[\s\/]+/g, '_').replace(/[^a-z0-9_]/g, '');
+          if (!dlabel) continue; // skip empty cells within header row
+          var fk = dlabel.toLowerCase()
+            .replace(/[\s\/]+/g, '_').replace(/[^a-z0-9_]/g, '');
+          if (fk) {
             colMap[d] = fk;
+            sectionEndCol = d;
             if (!dropdowns[fk]) dropdowns[fk] = [];
           }
         }
       } else {
-        for (var d = 0; d < data[i].length; d++) {
+        // End dropdown section when the entire section column range is blank
+        var ddBlank = true;
+        for (var db = sectionCol; db <= sectionEndCol; db++) {
+          if (data[i][db] !== '' && data[i][db] !== null) { ddBlank = false; break; }
+        }
+        if (ddBlank) { section = null; continue; }
+
+        for (var d = sectionCol; d <= sectionEndCol; d++) {
           if (colMap[d] === undefined) continue;
           var opt = String(data[i][d]).trim();
           if (opt) dropdowns[colMap[d]].push(opt);
@@ -666,32 +673,57 @@ function getConfigData() {
     // ── [CONTRACTOR_SPLITS] and [DISTANCE_MULTIPLIERS] ────────
     if (!headerSeen) {
       headerSeen = true;
-      var hdrs = data[i].map(function (h) {
-        return String(h).trim().toLowerCase().replace(/\s+/g, '_');
-      });
-      for (var h = 0; h < hdrs.length; h++) { if (hdrs[h]) colMap[hdrs[h]] = h; }
+      // Scan headers from sectionCol only, stopping at the first empty cell.
+      // This prevents picking up column headers from adjacent tables in the same row.
+      for (var h = sectionCol; h < data[i].length; h++) {
+        var hdrVal = String(data[i][h]).trim();
+        if (!hdrVal && h > sectionCol) break; // first empty after start = table boundary
+        var hdrKey = hdrVal.toLowerCase().replace(/\s+/g, '_').replace(/[^a-z0-9_]/g, '');
+        if (hdrKey) {
+          colMap[hdrKey] = h;
+          sectionEndCol  = h;
+        }
+      }
       continue;
     }
 
-    var rowEmpty = true;
-    for (var c = 0; c < data[i].length; c++) {
-      if (data[i][c] !== '' && data[i][c] !== null) { rowEmpty = false; break; }
+    // End section when all cells in the section's column range are blank
+    var secBlank = true;
+    for (var bc = sectionCol; bc <= sectionEndCol; bc++) {
+      if (data[i][bc] !== '' && data[i][bc] !== null) { secBlank = false; break; }
     }
-    if (rowEmpty) continue;
+    if (secBlank) { section = null; continue; }
 
     var row = data[i];
 
     if (section === '[CONTRACTOR_SPLITS]') {
-      var cName   = String(row[colMap['contractor']     !== undefined ? colMap['contractor']     : 0] || '').trim();
-      var cLmp    = Number(row[colMap['lmp_pct']        !== undefined ? colMap['lmp_pct']        : 1]) || 0;
-      var cConPct = Number(row[colMap['contractor_pct'] !== undefined ? colMap['contractor_pct'] : 2]) || 0;
+      var cConIdx = colMap['contractor'] !== undefined ? colMap['contractor'] : sectionCol;
+      // Accept "lmp_%", "lmp_pct", "lmp" as the LMP column header
+      var cLmpIdx = colMap['lmp_']      !== undefined ? colMap['lmp_']
+                  : colMap['lmp_pct']   !== undefined ? colMap['lmp_pct']
+                  : colMap['lmp']       !== undefined ? colMap['lmp']      : sectionCol + 1;
+      // Accept "contractor_%", "contractor_pct" as the contractor % header
+      var cPctIdx = colMap['contractor_']   !== undefined ? colMap['contractor_']
+                  : colMap['contractor_pct']!== undefined ? colMap['contractor_pct'] : sectionCol + 2;
+
+      var cName   = String(row[cConIdx] || '').trim();
+      var cLmp    = Number(row[cLmpIdx]) || 0;
+      var cConPct = Number(row[cPctIdx]) || 0;
+
+      // Normalise: if values look like decimals (e.g. 0.3 instead of 30),
+      // convert to whole-number percentages (Google Sheets % format stores 30% as 0.3).
+      if ((cLmp > 0 && cLmp <= 1) || (cConPct > 0 && cConPct <= 1)) {
+        cLmp    = Math.round(cLmp    * 100);
+        cConPct = Math.round(cConPct * 100);
+      }
+
       if (cName) contractorSplits.push({ contractor: cName, lmpPct: cLmp, contractorPct: cConPct });
 
     } else if (section === '[DISTANCE_MULTIPLIERS]') {
       var distIdx = colMap['distance']   !== undefined ? colMap['distance']
-                  : colMap['range']      !== undefined ? colMap['range']      : 0;
+                  : colMap['range']      !== undefined ? colMap['range']      : sectionCol;
       var multIdx = colMap['multiplier'] !== undefined ? colMap['multiplier']
-                  : colMap['factor']     !== undefined ? colMap['factor']     : 1;
+                  : colMap['factor']     !== undefined ? colMap['factor']     : sectionCol + 1;
       var dRange  = String(row[distIdx] || '').trim();
       var dMult   = Number(row[multIdx]) || 0;
       if (dRange && dMult) distanceMultipliers.push({ range: dRange, multiplier: dMult });
@@ -761,11 +793,15 @@ function _parsePriceData(data) {
       var firstHdr = String(data[i][sectionCol] || '').trim();
 
       if (/^version/i.test(firstHdr)) {
-        // Version table
+        // Version table — scan headers from sectionCol and STOP at the first empty cell.
+        // Without this stop, headers from adjacent tables on the same row (e.g. a
+        // contractor splits table) would bleed into colMap and corrupt the effectiveDate
+        // lookup (overwriting colMap['effective_from'] with the wrong column index).
         state = 'versions';
         for (var h = sectionCol; h < data[i].length; h++) {
-          var hdr = String(data[i][h]).trim().toLowerCase()
-            .replace(/[\s\/]+/g, '_').replace(/[^a-z0-9_]/g, '');
+          var hdrVal = String(data[i][h]).trim();
+          if (!hdrVal && h > sectionCol) break; // first empty after start = table boundary
+          var hdr = hdrVal.toLowerCase().replace(/[\s\/]+/g, '_').replace(/[^a-z0-9_]/g, '');
           if (hdr) colMap[hdr] = h;
         }
 
