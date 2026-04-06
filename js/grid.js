@@ -504,14 +504,16 @@ var Grid = (function () {
                 // Clear the value before saving
                 self.setDataAtRowProp(rowIdx, 'job_code', '', 'jc_revert');
                 _jcErrors[physRow] = true;
-                dirtyRows[rowIdx]  = false; // don't save this row
+                delete dirtyRows[rowIdx]; // remove from save queue entirely
                 _hot.render();
+                var jcMsg = 'Job Code "' + newJC + '" is already assigned to site ' +
+                  conflict.logicalSiteId + '.\nA Job Code can only belong to one site.';
                 _showJcErrorLabel(
                   rowIdx,
                   _visibleCols.findIndex(function (c) { return c.key === 'job_code'; }),
-                  'Job Code "' + newJC + '" is already assigned to site ' +
-                    conflict.logicalSiteId + '. A Job Code can only belong to one site.'
+                  jcMsg.replace('\n', ' ')
                 );
+                _showModal('Duplicate Job Code', jcMsg);
                 return; // skip save + pricing for this change
               }
             }
@@ -531,7 +533,7 @@ var Grid = (function () {
         });
 
         Object.keys(dirtyRows).forEach(function (rowIdx) {
-          _scheduleSave(parseInt(rowIdx, 10));
+          if (dirtyRows[rowIdx]) _scheduleSave(parseInt(rowIdx, 10));
         });
       },
 
