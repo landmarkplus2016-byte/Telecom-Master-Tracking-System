@@ -361,6 +361,10 @@ function getRows(role, coordinatorName) {
       var self  = String(coordinatorName || '').trim().toLowerCase();
       if (owner !== self) continue;
 
+      // Stamp _locked BEFORE stripping invoicing columns so the coordinator
+      // client knows this row is read-only without ever seeing acceptance_status.
+      rowObj._locked = (String(rowObj.acceptance_status || '').trim() !== '');
+
       // Strip coordinator_name + all invoicing columns from response
       for (var stripped in COORDINATOR_STRIPPED_KEYS) {
         delete rowObj[stripped];

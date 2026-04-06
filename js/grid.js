@@ -378,7 +378,15 @@ var Grid = (function () {
       data:               [],
       colHeaders:         colHeaders,
       columns:            columns,
-      rowHeaders:         true,
+      rowHeaders: function (row) {
+        // Show 🔒 in the row header for locked rows (coordinator view only).
+        // Uses getSourceDataAtRow so it works correctly even when sorting is applied.
+        if (_role === 'coordinator' && _hot) {
+          var rd = _hot.getSourceDataAtRow(row);
+          if (rd && _isRowLocked(rd)) return '\uD83D\uDD12'; // 🔒
+        }
+        return String(row + 1);
+      },
       // width/height must be explicit numbers or '100%' — HOT does
       // not honour CSS flex sizing on its own.
       width:              '100%',
@@ -456,6 +464,19 @@ var Grid = (function () {
         });
       },
 
+      // Row lock: prevent coordinators from entering edit mode on locked rows.
+      // Fires when user double-clicks or presses Enter/F2 to edit a cell.
+      // Returning false cancels the edit without altering any data.
+      beforeBeginEditing: function (row) {
+        if (_role === 'coordinator') {
+          var rd = _hot.getSourceDataAtRow(row);
+          if (_isRowLocked(rd)) {
+            _showLockToast();
+            return false;
+          }
+        }
+      },
+
       afterCreateRow: function (index) {
         _updateRowCount(_hot.countRows());
       },
@@ -464,10 +485,20 @@ var Grid = (function () {
         _updateRowCount(_hot.countRows());
       },
 
-      // Visual: mark read-only cells with a subtle class
+      // Per-cell properties: read-only enforcement + visual classes.
       cells: function (row, col) {
         var colDef = _visibleCols[col];
         if (!colDef) return {};
+
+        // Row lock — coordinator on a locked row: entire row is read-only + greyed out.
+        // Manager and invoicing are never affected by row locks.
+        if (_role === 'coordinator' && _hot) {
+          var rd = _hot.getSourceDataAtRow(row);
+          if (_isRowLocked(rd)) {
+            return { readOnly: true, className: 'cell-readonly row-locked' };
+          }
+        }
+
         if (_isColReadOnly(colDef, _role)) {
           return { className: 'cell-readonly' };
         }
@@ -688,6 +719,67 @@ var Grid = (function () {
     if (el) el.textContent = count + (count === 1 ? ' row' : ' rows');
   }
 
+  // ── Row lock helpers ──────────────────────────────────────
+
+  /**
+   * Returns true if the row's acceptance_status is filled.
+   *
+   * Coordinator rows: server sends _locked:true (acceptance_status is stripped
+   *   from their API response, so we can't check it directly).
+   * Invoicing / Manager rows: check acceptance_status directly.
+   */
+  function _isRowLocked(rowData) {
+    if (!rowData) return false;
+    // Server-stamped boolean for coordinator role
+    if (rowData._locked) return true;
+    // Direct field for invoicing/manager — non-empty = locked
+    var status = String(rowData.acceptance_status || '').trim();
+    return status !== '';
+  }
+
+  /**
+   * Show a non-blocking toast telling the coordinator why they can't edit.
+   * Replaces itself if already visible so rapid clicks don't stack toasts.
+   */
+  function _showLockToast() {
+    var existing = document.getElementById('grid-lock-toast');
+    if (existing) existing.remove();
+
+    var toast = document.createElement('div');
+    toast.id = 'grid-lock-toast';
+    toast.textContent =
+      'This record is locked because acceptance is in progress. ' +
+      'Contact the invoicing team for changes.';
+    document.body.appendChild(toast);
+
+    setTimeout(function () { if (toast.parentNode) toast.remove(); }, 5000);
+
+    if (!document.getElementById('grid-lock-toast-styles')) {
+      var s = document.createElement('style');
+      s.id = 'grid-lock-toast-styles';
+      s.textContent = [
+        '#grid-lock-toast {',
+          'position: fixed;',
+          'bottom: 40px;',
+          'left: 50%;',
+          'transform: translateX(-50%);',
+          'background: #2c2c38;',
+          'color: #e0e0ec;',
+          'font-family: var(--font-body);',
+          'font-size: 13px;',
+          'padding: 11px 22px;',
+          'border: 1px solid rgba(255,255,255,0.12);',
+          'border-left: 3px solid #c0392b;',
+          'box-shadow: 0 4px 20px rgba(0,0,0,0.35);',
+          'z-index: 2000;',
+          'white-space: nowrap;',
+          'pointer-events: none;',
+        '}',
+      ].join('\n');
+      document.head.appendChild(s);
+    }
+  }
+
   // ── Error toast ───────────────────────────────────────────
 
   function _showSaveError(msg) {
@@ -812,6 +904,17 @@ var Grid = (function () {
       '.handsontable td.cell-readonly {',
         'background: #f8f9fb !important;',
         'color: var(--text-secondary) !important;',
+      '}',
+
+      // Locked rows (coordinator view) — grey tint signals non-editable
+      '.handsontable td.row-locked {',
+        'background: #ebebef !important;',
+        'color: #9898a8 !important;',
+      '}',
+
+      // Row header lock icon — slightly muted so it doesn't dominate
+      '.handsontable .rowHeader {',
+        'font-size: 11px !important;',
       '}',
 
       // Selected cell
