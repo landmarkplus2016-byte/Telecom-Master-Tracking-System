@@ -417,10 +417,41 @@ var Grid = (function () {
       //                already has a debounced save in flight that will capture
       //                all the pricing values written synchronously before it fires
       afterChange: function (changes, source) {
-        if (!changes || source === 'loadData' || source === 'pricing') return;
+        if (!changes || source === 'loadData' || source === 'pricing' || source === 'lock_revert') return;
 
         var self      = this; // HOT instance
         var dirtyRows = {};
+
+        // ── Lock revert (belt-and-suspenders) ─────────────────────
+        // beforeBeginEditing doesn't fire for every edit path in HOT
+        // (e.g. direct dropdown selection). Revert any change to a
+        // locked row and show the modal instead of saving.
+        if (_role === 'coordinator') {
+          var lockedRows = {};
+          changes.forEach(function (change) {
+            var rowIdx = change[0];
+            if (lockedRows[rowIdx] !== undefined) return; // already checked this row
+            var rd = self.getSourceDataAtRow(rowIdx) || {};
+            lockedRows[rowIdx] = _isRowLocked(rd);
+          });
+
+          var anyLocked = false;
+          changes.forEach(function (change) {
+            if (!lockedRows[change[0]]) return;
+            anyLocked = true;
+            // Revert to old value (change[2]) so no dirty state reaches _scheduleSave
+            self.setDataAtRowProp(change[0], change[1], change[2], 'lock_revert');
+          });
+
+          if (anyLocked) {
+            _showModal(
+              'Row Locked',
+              'This record is locked because acceptance is in progress.\n' +
+              'Contact the invoicing team for changes.'
+            );
+            return; // don't schedule saves for locked rows
+          }
+        }
 
         // Columns whose changes require a pricing recalculation
         var PRICING_COLS = {
@@ -471,7 +502,11 @@ var Grid = (function () {
         if (_role === 'coordinator') {
           var rd = _hot.getSourceDataAtRow(row);
           if (_isRowLocked(rd)) {
-            _showLockToast();
+            _showModal(
+              'Row Locked',
+              'This record is locked because acceptance is in progress.\n' +
+              'Contact the invoicing team for changes.'
+            );
             return false;
           }
         }
@@ -737,61 +772,148 @@ var Grid = (function () {
     return status !== '';
   }
 
-  /**
-   * Show a non-blocking toast telling the coordinator why they can't edit.
-   * Replaces itself if already visible so rapid clicks don't stack toasts.
-   */
-  function _showLockToast() {
-    var existing = document.getElementById('grid-lock-toast');
+  // ── Modal dialog ──────────────────────────────────────────
+  //
+  // Used for all error and warning messages — replaces toasts.
+  // Blocks interaction until dismissed (OK button or Escape key).
+  // title   — short heading  e.g. "Row Locked" / "Save Failed"
+  // message — body text; \n becomes a line break
+
+  function _showModal(title, message) {
+    // Remove any existing modal
+    var existing = document.getElementById('grid-modal-overlay');
     if (existing) existing.remove();
 
-    var toast = document.createElement('div');
-    toast.id = 'grid-lock-toast';
-    toast.textContent =
-      'This record is locked because acceptance is in progress. ' +
-      'Contact the invoicing team for changes.';
-    document.body.appendChild(toast);
+    _injectModalStyles();
 
-    setTimeout(function () { if (toast.parentNode) toast.remove(); }, 5000);
+    var overlay = document.createElement('div');
+    overlay.id = 'grid-modal-overlay';
 
-    if (!document.getElementById('grid-lock-toast-styles')) {
-      var s = document.createElement('style');
-      s.id = 'grid-lock-toast-styles';
-      s.textContent = [
-        '#grid-lock-toast {',
-          'position: fixed;',
-          'bottom: 40px;',
-          'left: 50%;',
-          'transform: translateX(-50%);',
-          'background: #2c2c38;',
-          'color: #e0e0ec;',
-          'font-family: var(--font-body);',
-          'font-size: 13px;',
-          'padding: 11px 22px;',
-          'border: 1px solid rgba(255,255,255,0.12);',
-          'border-left: 3px solid #c0392b;',
-          'box-shadow: 0 4px 20px rgba(0,0,0,0.35);',
-          'z-index: 2000;',
-          'white-space: nowrap;',
-          'pointer-events: none;',
-        '}',
-      ].join('\n');
-      document.head.appendChild(s);
-    }
+    var dialog = document.createElement('div');
+    dialog.id = 'grid-modal-dialog';
+    dialog.setAttribute('role', 'alertdialog');
+    dialog.setAttribute('aria-modal', 'true');
+
+    var titleEl = document.createElement('div');
+    titleEl.id = 'grid-modal-title';
+    titleEl.textContent = title;
+
+    var bodyEl = document.createElement('div');
+    bodyEl.id = 'grid-modal-body';
+    // Convert \n to <br> safely
+    message.split('\n').forEach(function (line, idx) {
+      if (idx > 0) bodyEl.appendChild(document.createElement('br'));
+      bodyEl.appendChild(document.createTextNode(line));
+    });
+
+    var footer = document.createElement('div');
+    footer.id = 'grid-modal-footer';
+
+    var okBtn = document.createElement('button');
+    okBtn.id = 'grid-modal-ok';
+    okBtn.textContent = 'OK';
+    okBtn.addEventListener('click', _closeModal);
+
+    footer.appendChild(okBtn);
+    dialog.appendChild(titleEl);
+    dialog.appendChild(bodyEl);
+    dialog.appendChild(footer);
+    overlay.appendChild(dialog);
+    document.body.appendChild(overlay);
+
+    // Close on overlay click (outside dialog)
+    overlay.addEventListener('click', function (e) {
+      if (e.target === overlay) _closeModal();
+    });
+
+    // Close on Escape
+    document.addEventListener('keydown', _modalKeyHandler);
+
+    okBtn.focus();
   }
 
-  // ── Error toast ───────────────────────────────────────────
+  function _closeModal() {
+    var overlay = document.getElementById('grid-modal-overlay');
+    if (overlay) overlay.remove();
+    document.removeEventListener('keydown', _modalKeyHandler);
+  }
+
+  function _modalKeyHandler(e) {
+    if (e.key === 'Escape' || e.keyCode === 27) _closeModal();
+    if ((e.key === 'Enter' || e.keyCode === 13) && document.getElementById('grid-modal-overlay')) _closeModal();
+  }
+
+  function _injectModalStyles() {
+    if (document.getElementById('grid-modal-styles')) return;
+    var s = document.createElement('style');
+    s.id = 'grid-modal-styles';
+    s.textContent = [
+      '#grid-modal-overlay {',
+        'position: fixed;',
+        'inset: 0;',
+        'background: rgba(0,0,0,0.45);',
+        'display: flex;',
+        'align-items: center;',
+        'justify-content: center;',
+        'z-index: 9000;',
+      '}',
+      '#grid-modal-dialog {',
+        'background: var(--bg-surface, #fff);',
+        'border: 1px solid var(--border, #ccc);',
+        'box-shadow: 0 8px 40px rgba(0,0,0,0.32);',
+        'min-width: 320px;',
+        'max-width: 480px;',
+        'width: 90%;',
+        'display: flex;',
+        'flex-direction: column;',
+      '}',
+      '#grid-modal-title {',
+        'background: var(--bg-navy, #1a2e4a);',
+        'color: var(--text-on-navy, #fff);',
+        'font-family: var(--font-display, sans-serif);',
+        'font-size: 12px;',
+        'font-weight: 700;',
+        'letter-spacing: 0.12em;',
+        'text-transform: uppercase;',
+        'padding: 10px 16px;',
+        'border-bottom: 1px solid var(--border-navy, rgba(255,255,255,0.12));',
+      '}',
+      '#grid-modal-body {',
+        'font-family: var(--font-body, sans-serif);',
+        'font-size: 13px;',
+        'color: var(--text-primary, #222);',
+        'padding: 20px 20px 16px;',
+        'line-height: 1.55;',
+      '}',
+      '#grid-modal-footer {',
+        'display: flex;',
+        'justify-content: flex-end;',
+        'padding: 0 16px 14px;',
+      '}',
+      '#grid-modal-ok {',
+        'height: 30px;',
+        'min-width: 80px;',
+        'padding: 0 20px;',
+        'font-family: var(--font-display, sans-serif);',
+        'font-weight: 700;',
+        'font-size: 11px;',
+        'letter-spacing: 0.1em;',
+        'text-transform: uppercase;',
+        'background: var(--bg-navy, #1a2e4a);',
+        'color: var(--text-on-navy, #fff);',
+        'border: 1px solid var(--border-navy, rgba(255,255,255,0.15));',
+        'cursor: pointer;',
+      '}',
+      '#grid-modal-ok:hover {',
+        'background: var(--accent, #c9973a);',
+        'border-color: var(--accent, #c9973a);',
+      '}',
+    ].join('\n');
+    document.head.appendChild(s);
+  }
 
   function _showSaveError(msg) {
-    var existing = document.getElementById('grid-save-error');
-    if (existing) existing.remove();
-
-    var toast = document.createElement('div');
-    toast.id = 'grid-save-error';
-    toast.textContent = 'Save failed: ' + (msg || 'Unknown error');
-    document.body.appendChild(toast);
-
-    setTimeout(function () { toast.remove(); }, 5000);
+    _showModal('Save Failed', msg || 'An unknown error occurred.');
   }
 
   // ── Styles ────────────────────────────────────────────────
@@ -912,10 +1034,6 @@ var Grid = (function () {
         'color: #9898a8 !important;',
       '}',
 
-      // Row header lock icon — slightly muted so it doesn't dominate
-      '.handsontable .rowHeader {',
-        'font-size: 11px !important;',
-      '}',
 
       // Selected cell
       '.handsontable td.current {',
@@ -934,20 +1052,6 @@ var Grid = (function () {
         'color: var(--accent) !important;',
       '}',
 
-      // ── Save error toast ──────────────────────────────────────
-      '#grid-save-error {',
-        'position: fixed;',
-        'bottom: 40px;',
-        'right: 20px;',
-        'background: var(--color-error);',
-        'color: #fff;',
-        'font-family: var(--font-body);',
-        'font-size: 13px;',
-        'padding: 10px 18px;',
-        'box-shadow: 0 4px 16px rgba(0,0,0,0.2);',
-        'z-index: 1000;',
-        'max-width: 400px;',
-      '}',
 
     ].join('\n');
 
