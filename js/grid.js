@@ -391,11 +391,7 @@ var Grid = (function () {
       columns:            columns,
       rowHeaders: function (row) {
         // Show 🔒 in the row header for locked rows (coordinator view only).
-        // Uses getSourceDataAtRow so it works correctly even when sorting is applied.
-        if (_role === 'coordinator' && _hot) {
-          var rd = _hot.getSourceDataAtRow(row);
-          if (rd && _isRowLocked(rd)) return '\uD83D\uDD12'; // 🔒
-        }
+        if (_isRowLockedByVisual(row)) return '\uD83D\uDD12'; // 🔒
         return String(row + 1);
       },
       // width/height must be explicit numbers or '100%' — HOT does
