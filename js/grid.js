@@ -605,7 +605,32 @@ var Grid = (function () {
     Sheets.writeRow(rowData, function (result) {
       if (!result.success) {
         console.error('[grid.js] writeRow failed:', result.error);
-        _showSaveError(result.error);
+
+        // ── Lock detection from server rejection ──────────────────
+        // If the server rejects because the row is locked, immediately
+        // mark it locked in _lockedRows and re-render. This handles the
+        // case where Code.gs hasn't been redeployed yet with the _locked
+        // flag in getRows — the client learns the lock the hard way the
+        // first time, then enforces it locally from that point on.
+        var isLockError = result.error &&
+          result.error.toLowerCase().indexOf('locked') !== -1;
+
+        if (isLockError && _role === 'coordinator') {
+          // Mark this physical row as locked
+          _lockedRows[rowIdx] = true;
+          if (_data[rowIdx]) _data[rowIdx]._locked = true;
+
+          // Re-render so cells callback applies grey tint + readOnly
+          if (_hot) _hot.render();
+
+          _showModal(
+            'Row Locked',
+            'This record is locked because acceptance is in progress.\n' +
+            'Contact the invoicing team for changes.'
+          );
+        } else {
+          _showSaveError(result.error);
+        }
         return;
       }
 
