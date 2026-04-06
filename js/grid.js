@@ -95,6 +95,7 @@ var Grid = (function () {
   var _data            = [];     // current grid data (array of row objects)
   var _savePending     = {};     // rowIdx → setTimeout handle (debounce per row)
   var _dropdownSources = {};     // { field_key: [option, ...] } — merged from DROPDOWN_DEFAULTS + Config
+  var _lockedRows      = {};     // { physicalRowIndex: true } — built in loadData for coordinator role
 
   // ── Public API ────────────────────────────────────────────
 
@@ -124,6 +125,16 @@ var Grid = (function () {
   function loadData(rows) {
     console.log('[grid.js] loadData() — rows:', rows.length);
     _data = rows || [];
+
+    // Build locked-row index for coordinator role.
+    // Keyed by _data array index (= HOT physical row index) so lock checks
+    // are O(1) and immune to visual row reordering from column sorting.
+    _lockedRows = {};
+    if (_role === 'coordinator') {
+      _data.forEach(function (row, idx) {
+        if (row._locked) _lockedRows[idx] = true;
+      });
+    }
 
     // Normalize all date column values to DD-MMM-YYYY before HOT sees them.
     // HOT's correctFormat only fires on user edits, not on loadData, so raw
@@ -425,32 +436,31 @@ var Grid = (function () {
         // ── Lock revert (belt-and-suspenders) ─────────────────────
         // beforeBeginEditing doesn't fire for every edit path in HOT
         // (e.g. direct dropdown selection). Revert any change to a
-        // locked row and show the modal instead of saving.
-        if (_role === 'coordinator') {
-          var lockedRows = {};
-          changes.forEach(function (change) {
-            var rowIdx = change[0];
-            if (lockedRows[rowIdx] !== undefined) return; // already checked this row
-            var rd = self.getSourceDataAtRow(rowIdx) || {};
-            lockedRows[rowIdx] = _isRowLocked(rd);
-          });
-
-          var anyLocked = false;
-          changes.forEach(function (change) {
-            if (!lockedRows[change[0]]) return;
-            anyLocked = true;
-            // Revert to old value (change[2]) so no dirty state reaches _scheduleSave
-            self.setDataAtRowProp(change[0], change[1], change[2], 'lock_revert');
-          });
-
-          if (anyLocked) {
-            _showModal(
-              'Row Locked',
-              'This record is locked because acceptance is in progress.\n' +
-              'Contact the invoicing team for changes.'
-            );
-            return; // don't schedule saves for locked rows
+        // locked row immediately — before _scheduleSave is called —
+        // so no data ever reaches the server.
+        //
+        // Uses _isRowLockedByVisual which converts visual→physical correctly,
+        // so this works even when the grid is sorted.
+        var checkedRows = {};
+        var anyLocked   = false;
+        changes.forEach(function (change) {
+          var rowIdx = change[0];
+          if (checkedRows[rowIdx] === undefined) {
+            checkedRows[rowIdx] = _isRowLockedByVisual(rowIdx);
           }
+          if (!checkedRows[rowIdx]) return;
+          anyLocked = true;
+          // Revert to old value (change[2]) so no dirty state reaches _scheduleSave
+          self.setDataAtRowProp(rowIdx, change[1], change[2], 'lock_revert');
+        });
+
+        if (anyLocked) {
+          _showModal(
+            'Row Locked',
+            'This record is locked because acceptance is in progress.\n' +
+            'Contact the invoicing team for changes.'
+          );
+          return; // stop — don't schedule saves for any row in this batch
         }
 
         // Columns whose changes require a pricing recalculation
@@ -499,16 +509,13 @@ var Grid = (function () {
       // Fires when user double-clicks or presses Enter/F2 to edit a cell.
       // Returning false cancels the edit without altering any data.
       beforeBeginEditing: function (row) {
-        if (_role === 'coordinator') {
-          var rd = _hot.getSourceDataAtRow(row);
-          if (_isRowLocked(rd)) {
-            _showModal(
-              'Row Locked',
-              'This record is locked because acceptance is in progress.\n' +
-              'Contact the invoicing team for changes.'
-            );
-            return false;
-          }
+        if (_isRowLockedByVisual(row)) {
+          _showModal(
+            'Row Locked',
+            'This record is locked because acceptance is in progress.\n' +
+            'Contact the invoicing team for changes.'
+          );
+          return false;
         }
       },
 
@@ -527,11 +534,8 @@ var Grid = (function () {
 
         // Row lock — coordinator on a locked row: entire row is read-only + greyed out.
         // Manager and invoicing are never affected by row locks.
-        if (_role === 'coordinator' && _hot) {
-          var rd = _hot.getSourceDataAtRow(row);
-          if (_isRowLocked(rd)) {
-            return { readOnly: true, className: 'cell-readonly row-locked' };
-          }
+        if (_isRowLockedByVisual(row)) {
+          return { readOnly: true, className: 'cell-readonly row-locked' };
         }
 
         if (_isColReadOnly(colDef, _role)) {
@@ -757,19 +761,25 @@ var Grid = (function () {
   // ── Row lock helpers ──────────────────────────────────────
 
   /**
-   * Returns true if the row's acceptance_status is filled.
+   * Returns true if the given VISUAL row index is a locked row.
    *
-   * Coordinator rows: server sends _locked:true (acceptance_status is stripped
-   *   from their API response, so we can't check it directly).
-   * Invoicing / Manager rows: check acceptance_status directly.
+   * Uses _hot.toPhysicalRow() to convert visual → physical before checking
+   * _lockedRows, so the result is correct even when the grid is sorted.
+   *
+   * For coordinator: relies on _lockedRows map built from server _locked flag.
+   * For invoicing/manager: checks acceptance_status directly on the source row.
    */
-  function _isRowLocked(rowData) {
-    if (!rowData) return false;
-    // Server-stamped boolean for coordinator role
-    if (rowData._locked) return true;
-    // Direct field for invoicing/manager — non-empty = locked
-    var status = String(rowData.acceptance_status || '').trim();
-    return status !== '';
+  function _isRowLockedByVisual(visualRow) {
+    if (!_hot) return false;
+    var physRow = (_hot.toPhysicalRow) ? _hot.toPhysicalRow(visualRow) : visualRow;
+
+    if (_role === 'coordinator') {
+      return !!_lockedRows[physRow];
+    }
+
+    // Invoicing / manager: locked rows are visible but never locked out for them.
+    // Return false — managers and invoicing can always edit.
+    return false;
   }
 
   // ── Modal dialog ──────────────────────────────────────────
