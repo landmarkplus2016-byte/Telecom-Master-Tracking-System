@@ -465,7 +465,39 @@ function writeRow(rowData, role, coordinatorName) {
   }
 
   var colIndexMap = buildColumnIndexMap(headerRow);
-  var rowIndex    = rowData._row_index; // 1-based sheet row; absent for new rows
+
+  // ── JC uniqueness check ────────────────────────────────────────────
+  // If a job_code is being written, scan all existing rows to ensure
+  // no other row already uses that JC on a different Logical Site ID.
+  if (rowData.job_code) {
+    var jcLower     = String(rowData.job_code).trim().toLowerCase();
+    var ownSite     = String(rowData.logical_site_id || '').trim().toLowerCase();
+    var ownRowIndex = rowData._row_index || null; // null for new rows
+    var jcIdx       = colIndexMap['job_code'];
+    var siteIdx     = colIndexMap['logical_site_id'];
+
+    if (jcIdx !== undefined) {
+      for (var r = 1; r < allValues.length; r++) {
+        var sheetRowNum = r + 1; // 1-based
+        if (ownRowIndex && sheetRowNum === ownRowIndex) continue; // skip self
+
+        var rowJC   = String(allValues[r][jcIdx] || '').trim().toLowerCase();
+        if (rowJC !== jcLower) continue;
+
+        var rowSite = siteIdx !== undefined ? String(allValues[r][siteIdx] || '').trim().toLowerCase() : '';
+        if (rowSite !== ownSite) {
+          var conflictSite = siteIdx !== undefined ? String(allValues[r][siteIdx] || '').trim() : '';
+          return {
+            success: false,
+            error:   'Job Code "' + rowData.job_code.trim() + '" is already assigned to site ' +
+                     (conflictSite || '(no site)') + '. A Job Code can only belong to one site.'
+          };
+        }
+      }
+    }
+  }
+
+  var rowIndex = rowData._row_index; // 1-based sheet row; absent for new rows
 
   if (rowIndex && rowIndex > 1) {
     // ── Update existing row ──────────────────────────────────

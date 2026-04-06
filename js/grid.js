@@ -96,6 +96,7 @@ var Grid = (function () {
   var _savePending     = {};     // rowIdx → setTimeout handle (debounce per row)
   var _dropdownSources = {};     // { field_key: [option, ...] } — merged from DROPDOWN_DEFAULTS + Config
   var _lockedRows      = {};     // { physicalRowIndex: true } — built in loadData for coordinator role
+  var _jcErrors        = {};     // { physicalRowIndex: true } — rows with a JC conflict; drives red highlight
 
   // ── Public API ────────────────────────────────────────────
 
@@ -424,7 +425,8 @@ var Grid = (function () {
       //                already has a debounced save in flight that will capture
       //                all the pricing values written synchronously before it fires
       afterChange: function (changes, source) {
-        if (!changes || source === 'loadData' || source === 'pricing' || source === 'lock_revert') return;
+        if (!changes || source === 'loadData' || source === 'pricing' ||
+            source === 'lock_revert' || source === 'jc_revert') return;
 
         var self      = this; // HOT instance
         var dirtyRows = {};
@@ -483,6 +485,38 @@ var Grid = (function () {
             }
           }
 
+          // ── JC uniqueness check ──────────────────────────────
+          // Fires whenever job_code changes (single edit or paste).
+          // Scans _data for a row with the same JC on a different
+          // Logical Site ID. On conflict: clears the field, marks the
+          // physical row in _jcErrors (red highlight via cells callback),
+          // and shows an inline error label below the cell.
+          if (colKey === 'job_code') {
+            var physRow = (_hot.toPhysicalRow) ? _hot.toPhysicalRow(rowIdx) : rowIdx;
+            // Clear any prior error on this row
+            delete _jcErrors[physRow];
+            _clearJcErrorLabel(rowIdx);
+
+            var newJC = String(change[3] || '').trim(); // change[3] = new value
+            if (newJC) {
+              var conflict = _findJcConflict(newJC, physRow);
+              if (conflict) {
+                // Clear the value before saving
+                self.setDataAtRowProp(rowIdx, 'job_code', '', 'jc_revert');
+                _jcErrors[physRow] = true;
+                dirtyRows[rowIdx]  = false; // don't save this row
+                _hot.render();
+                _showJcErrorLabel(
+                  rowIdx,
+                  _visibleCols.findIndex(function (c) { return c.key === 'job_code'; }),
+                  'Job Code "' + newJC + '" is already assigned to site ' +
+                    conflict.logicalSiteId + '. A Job Code can only belong to one site.'
+                );
+                return; // skip save + pricing for this change
+              }
+            }
+          }
+
           // ── Pricing recalculation ─────────────────────────────
           if (PRICING_COLS[colKey] && typeof Pricing !== 'undefined' && Pricing.isReady()) {
             var prevVersion = null;
@@ -532,6 +566,14 @@ var Grid = (function () {
         // Manager and invoicing are never affected by row locks.
         if (_isRowLockedByVisual(row)) {
           return { readOnly: true, className: 'cell-readonly row-locked' };
+        }
+
+        // JC error: highlight only the job_code cell red
+        if (colDef.key === 'job_code') {
+          var physRow = (_hot && _hot.toPhysicalRow) ? _hot.toPhysicalRow(row) : row;
+          if (_jcErrors[physRow]) {
+            return { className: 'cell-jc-error' };
+          }
         }
 
         if (_isColReadOnly(colDef, _role)) {
@@ -777,6 +819,83 @@ var Grid = (function () {
   function _updateRowCount(count) {
     var el = document.getElementById('row-count');
     if (el) el.textContent = count + (count === 1 ? ' row' : ' rows');
+  }
+
+  // ── JC uniqueness helpers ─────────────────────────────────
+
+  /**
+   * Scan _data for any row with the same job_code on a different
+   * Logical Site ID than the row at physicalRowIndex.
+   *
+   * Returns { logicalSiteId } of the conflicting row, or null if no conflict.
+   *
+   * Stage 3 note: swap _data scan for an IndexedDB query here.
+   */
+  function _findJcConflict(jc, physicalRowIndex) {
+    if (!jc) return null;
+    var jcLower   = jc.toLowerCase();
+    var ownSite   = String((_data[physicalRowIndex] || {}).logical_site_id || '').trim().toLowerCase();
+
+    for (var i = 0; i < _data.length; i++) {
+      if (i === physicalRowIndex) continue;
+      var row    = _data[i];
+      var rowJC  = String(row.job_code || '').trim().toLowerCase();
+      if (rowJC !== jcLower) continue;
+
+      var rowSite = String(row.logical_site_id || '').trim().toLowerCase();
+      // Same JC, different site (or the existing row has a site and this row doesn't)
+      if (rowSite !== ownSite) {
+        return { logicalSiteId: String(row.logical_site_id || '').trim() || '(no site)' };
+      }
+    }
+    return null;
+  }
+
+  /**
+   * Show a small red error label positioned below the JC cell.
+   * One label at a time — replaced on each call, cleared on next valid edit.
+   */
+  function _showJcErrorLabel(visualRow, colIndex, message) {
+    _clearJcErrorLabel(); // remove any existing label first
+
+    if (!_hot || colIndex < 0) return;
+
+    var td = _hot.getCell(visualRow, colIndex);
+    if (!td) return;
+
+    var rect    = td.getBoundingClientRect();
+    var container = document.getElementById('grid-container');
+    var cRect   = container ? container.getBoundingClientRect() : { top: 0, left: 0 };
+
+    var label = document.createElement('div');
+    label.id  = 'jc-error-label';
+    label.textContent = message;
+
+    // Position relative to viewport
+    label.style.cssText = [
+      'position:fixed',
+      'top:'  + (rect.bottom + 2) + 'px',
+      'left:' + rect.left + 'px',
+      'z-index:3000',
+      'background:#c0392b',
+      'color:#fff',
+      'font-family:var(--font-body)',
+      'font-size:11px',
+      'padding:4px 10px',
+      'pointer-events:none',
+      'white-space:nowrap',
+      'box-shadow:0 2px 8px rgba(0,0,0,0.25)',
+    ].join(';');
+
+    document.body.appendChild(label);
+
+    // Auto-remove after 6 seconds
+    setTimeout(_clearJcErrorLabel, 6000);
+  }
+
+  function _clearJcErrorLabel() {
+    var el = document.getElementById('jc-error-label');
+    if (el) el.remove();
   }
 
   // ── Row lock helpers ──────────────────────────────────────
@@ -1057,6 +1176,13 @@ var Grid = (function () {
       '.handsontable td.cell-readonly {',
         'background: #f8f9fb !important;',
         'color: var(--text-secondary) !important;',
+      '}',
+
+      // JC conflict — red cell background on the job_code cell
+      '.handsontable td.cell-jc-error {',
+        'background: rgba(192,57,43,0.12) !important;',
+        'outline: 2px solid #c0392b !important;',
+        'outline-offset: -2px;',
       '}',
 
       // Locked rows (coordinator view) — grey tint signals non-editable
