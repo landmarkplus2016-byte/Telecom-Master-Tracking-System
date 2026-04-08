@@ -207,7 +207,7 @@
   // app is open. Only runs when the tab is visible and the device
   // is online — skips silently otherwise.
 
-  var BACKGROUND_SYNC_INTERVAL_MS = 2 * 60 * 1000; // 2 minutes
+  var BACKGROUND_SYNC_INTERVAL_MS = 30 * 1000; // 30 seconds
   var _bgSyncTimer = null;
 
   function _startBackgroundSync() {

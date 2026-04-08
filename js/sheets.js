@@ -43,8 +43,12 @@ var Sheets = (function () {
   // than this threshold. Two missed beats (60 s) before disappearing.
   var PRESENCE_STALE_MS = 75 * 1000; // 75 seconds
 
-  // Timeout for silent presence requests — short because failures are ignored.
-  var PRESENCE_TIMEOUT_MS = 10 * 1000; // 10 seconds
+  // Timeout for silent presence requests.
+  // Apps Script can take 5–15 s even when warm (sheet I/O is slow).
+  // 10 s was too short — heartbeats timed out silently, breaking avatars
+  // and change notifications. 25 s gives enough headroom while still
+  // being shorter than the main request timeout (45 s).
+  var PRESENCE_TIMEOUT_MS = 25 * 1000; // 25 seconds
 
   // ── Internal state ────────────────────────────────────────
 
@@ -278,7 +282,12 @@ var Sheets = (function () {
     _postSilent(
       { action: 'presenceWrite', presenceName: _presenceName },
       function (result) {
-        if (!result || !result.success) return;
+        if (!result || !result.success) {
+          console.warn('[sheets.js] Heartbeat failed or timed out — result:', result);
+          return;
+        }
+        console.log('[sheets.js] Heartbeat OK — online users:', (result.users || []).length,
+          '| changes:', (result.changes || []).length);
         _renderAvatars(result.users || []);
 
         // Change notifications — manager only, one-directional:
