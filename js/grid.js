@@ -97,6 +97,7 @@ var Grid = (function () {
   var _dropdownSources = {};     // { field_key: [option, ...] } — merged from DROPDOWN_DEFAULTS + Config
   var _lockedRows      = {};     // { physicalRowIndex: true } — built in loadData for coordinator role
   var _jcErrors        = {};     // { physicalRowIndex: true } — rows with a JC conflict; drives red highlight
+  var _changedRows     = {};     // { physicalRowIndex: timerId } — manager: coordinator just saved this row
 
   // ── Public API ────────────────────────────────────────────
 
@@ -691,6 +692,13 @@ var Grid = (function () {
           }
         }
 
+        // Change notification highlight (manager only): coordinator just saved this row
+        var physRowC = (_hot && _hot.toPhysicalRow) ? _hot.toPhysicalRow(row) : row;
+        if (_changedRows[physRowC] !== undefined) {
+          var baseClass = _isColReadOnly(colDef, _role) ? 'cell-readonly ' : '';
+          return { className: baseClass + 'row-changed' };
+        }
+
         if (_isColReadOnly(colDef, _role)) {
           return { className: 'cell-readonly' };
         }
@@ -811,6 +819,44 @@ var Grid = (function () {
 
       console.log('[grid.js] Row saved — sheet row:', result.rowIndex);
     });
+  }
+
+  // ── Change notification highlight (manager only) ─────────
+  //
+  // Called by Sheets._handleChanges() for each entry in the Changes tab.
+  // Finds the row in _data whose `id` field matches rowId, marks it in
+  // _changedRows, and schedules a 10-second auto-clear.
+  // If no id match is found (row not yet in the local dataset), the call
+  // is silently ignored — the next delta sync will bring the row in anyway.
+
+  var CHANGE_HIGHLIGHT_MS = 10 * 1000; // how long the amber tint stays
+
+  function highlightChange(rowId) {
+    if (!_hot || !rowId) return;
+
+    // Find the physical row index whose `id` matches rowId
+    var targetPhys = -1;
+    for (var i = 0; i < _data.length; i++) {
+      if (_data[i] && String(_data[i].id || '').trim() === String(rowId).trim()) {
+        targetPhys = i;
+        break;
+      }
+    }
+
+    if (targetPhys < 0) return; // row not in local data yet
+
+    // Clear any existing timer for this row before resetting
+    if (_changedRows[targetPhys] !== undefined) {
+      clearTimeout(_changedRows[targetPhys]);
+    }
+
+    // Schedule auto-clear
+    _changedRows[targetPhys] = setTimeout(function () {
+      delete _changedRows[targetPhys];
+      if (_hot) _hot.render();
+    }, CHANGE_HIGHLIGHT_MS);
+
+    _hot.render();
   }
 
   // ── Row index patch-up (called by offline.js after queue drain) ──
@@ -1341,6 +1387,13 @@ var Grid = (function () {
         'color: #9898a8 !important;',
       '}',
 
+      // Change notification (manager view) — coordinator just saved this row
+      // Subtle amber left-border + very light amber tint; fades out after 10 s
+      '.handsontable td.row-changed {',
+        'background: rgba(201,151,58,0.07) !important;',
+        'border-left: 2px solid var(--accent, #c9973a) !important;',
+      '}',
+
 
       // Selected cell
       '.handsontable td.current {',
@@ -1372,6 +1425,7 @@ var Grid = (function () {
     loadData:        loadData,
     applyDropdowns:  applyDropdowns,
     applyDelta:      applyDelta,
+    highlightChange: highlightChange,
     updateRowIndex:  updateRowIndex,
   };
 

@@ -38,11 +38,12 @@
 
 // ── Sheet tab names ──────────────────────────────────────────
 
-var SHEET_DATA     = 'Data';
-var SHEET_CONFIG   = 'Config';
-var SHEET_DELETED  = 'Deleted';
-var SHEET_PRESENCE = 'Presence';
-var SHEET_CHANGES  = 'Changes';
+var SHEET_DATA      = 'Data';
+var SHEET_CONFIG    = 'Config';
+var SHEET_DELETED   = 'Deleted';
+var SHEET_PRESENCE  = 'Presence';
+var SHEET_CHANGES   = 'Changes';
+var SHEET_CONFLICTS = 'Conflicts';
 
 
 // ── Column definitions ────────────────────────────────────────
@@ -193,6 +194,22 @@ function handleRequest(e) {
 
       case 'getConfig':
         return jsonResponse(getConfigData());
+
+      case 'presenceWrite':
+        return jsonResponse(presenceWrite(authResult.name));
+
+      case 'presenceRead':
+        return jsonResponse(presenceRead());
+
+      case 'conflictResolve':
+        return jsonResponse(conflictResolve(
+          params.conflictSheetRow,
+          params.liveRowIndex,
+          params.keepVersion,
+          params.mergedData,
+          authResult.role,
+          authResult.name
+        ));
 
       default:
         return jsonResponse({ success: false, error: 'Unknown action: ' + params.action });
@@ -582,6 +599,42 @@ function writeRow(rowData, role, coordinatorName) {
     var sheetRange = dataSheet.getRange(rowIndex, 1, 1, totalCols);
     var existing   = sheetRange.getValues()[0];
 
+    // ── Conflict detection (offline queue drain only) ────────────────────
+    // When the client sends _queued_at, this write comes from the offline
+    // queue drain. Compare the row's current last_modified with _queued_at:
+    // if the live row was modified after the user went offline, someone else
+    // edited it while the user was offline → conflict.
+    // Action: save the offline version to the Conflicts tab, leave the live
+    // row untouched, return a conflict response (not a success).
+    if (rowData._queued_at) {
+      var queuedAtMs = Number(rowData._queued_at);
+      var lmColIdx   = colIndexMap['last_modified'];
+      var liveLm     = lmColIdx !== undefined ? _toEpochMs(existing[lmColIdx]) : 0;
+
+      if (liveLm > queuedAtMs) {
+        // Build a clean server-row snapshot for the client's side-by-side view
+        var serverRowSnap = {};
+        for (var snapK = 0; snapK < ALL_COLUMNS.length; snapK++) {
+          var snapKey = ALL_COLUMNS[snapK];
+          var snapIdx = colIndexMap[snapKey];
+          if (snapIdx !== undefined) serverRowSnap[snapKey] = formatCell(existing[snapIdx]);
+        }
+        serverRowSnap._row_index     = rowIndex;
+        serverRowSnap._last_modified = liveLm;
+
+        var conflictSheetRow = _saveConflict(
+          ss, rowData, coordinatorName || '', nowMs
+        );
+
+        return {
+          success:          false,
+          conflict:         true,
+          conflictSheetRow: conflictSheetRow,
+          serverRow:        serverRowSnap
+        };
+      }
+    }
+
     // Row lock: coordinator cannot edit a row where Acceptance Status is filled
     var acceptanceIdx = colIndexMap['acceptance_status'];
     if (role === 'coordinator' && acceptanceIdx !== undefined) {
@@ -627,6 +680,12 @@ function writeRow(rowData, role, coordinatorName) {
     }
 
     sheetRange.setValues([updatedRow]);
+
+    // Notify manager: log coordinator saves to the Changes tab
+    if (role === 'coordinator') {
+      _logChange(coordinatorName, rowData.id || '', rowIndex);
+    }
+
     return { success: true, rowIndex: rowIndex, serverTime: nowMs };
 
   } else {
@@ -649,6 +708,12 @@ function writeRow(rowData, role, coordinatorName) {
 
     dataSheet.appendRow(newRow);
     var newRowIndex = dataSheet.getLastRow();
+
+    // Notify manager: log coordinator saves to the Changes tab
+    if (role === 'coordinator') {
+      _logChange(coordinatorName, rowData.id || '', newRowIndex);
+    }
+
     return { success: true, rowIndex: newRowIndex, serverTime: nowMs };
   }
 }
@@ -684,6 +749,297 @@ function writeBatch(rowsData, role, coordinatorName) {
   }
 
   return { success: true, results: results };
+}
+
+
+// ── Changes tab ──────────────────────────────────────────────
+//
+// Schema: who (string) | row_id (string) | when (epoch-ms number)
+// Row 1 is always the header row.
+//
+// Written by writeRow when role === 'coordinator' only.
+// Read back by presenceWrite so managers get the change list
+// in the same round-trip as the presence heartbeat.
+//
+// Auto-pruned on every write: entries older than 24 hours are dropped.
+// The tab stays tiny — even a busy team produces < 500 entries/day.
+
+var CHANGES_PRUNE_MS = 24 * 60 * 60 * 1000; // 24 hours
+
+// Log one coordinator save to the Changes tab.
+// Called from writeRow after a successful sheet write.
+// rowId is the row's `id` field value (e.g. "AB-260401120345-3");
+// falls back to the sheet row index if id is blank.
+function _logChange(who, rowId, rowIndex) {
+  try {
+    var ss    = SpreadsheetApp.getActiveSpreadsheet();
+    var sheet = _ensureChangesSheet(ss);
+    var nowMs = Date.now();
+
+    // Append the new entry first (fast path — no full read needed yet)
+    sheet.appendRow([String(who), String(rowId || rowIndex || ''), nowMs]);
+
+    // Prune entries older than 24 hours.
+    // Read the full tab after appending so the new row is included.
+    var data = sheet.getDataRange().getValues();
+    if (data.length <= 2) return; // header + 1 row — nothing to prune
+
+    var kept = [data[0]]; // always keep header row
+    for (var i = 1; i < data.length; i++) {
+      var ts = _toEpochMs(data[i][2]);
+      if (nowMs - ts <= CHANGES_PRUNE_MS) kept.push(data[i]);
+    }
+
+    if (kept.length < data.length) {
+      sheet.clearContents();
+      sheet.getRange(1, 1, kept.length, 3).setValues(kept);
+    }
+  } catch (e) {
+    // Non-fatal — a failed change log must never block the main save
+  }
+}
+
+function _ensureChangesSheet(ss) {
+  var sheet = ss.getSheetByName(SHEET_CHANGES);
+  if (sheet) return sheet;
+  sheet = ss.insertSheet(SHEET_CHANGES);
+  sheet.getRange(1, 1, 1, 3).setValues([['who', 'row_id', 'when']]);
+  return sheet;
+}
+
+
+// ── Conflicts tab ─────────────────────────────────────────────
+//
+// Schema: conflict_id | live_row_index | offline_who | offline_when |
+//         detected_at | offline_data_json
+//
+// Written by writeRow when it detects that a live row was modified
+// after the user went offline (last_modified > _queued_at).
+// The offline version is stored here; the live row is left untouched.
+//
+// Resolved by conflictResolve: the chosen version is applied to the
+// live Data row, and this conflict row is deleted.
+
+function _saveConflict(ss, offlineData, who, nowMs) {
+  try {
+    var sheet     = _ensureConflictsSheet(ss);
+    var conflictId = 'c_' + nowMs + '_' + (offlineData._row_index || 'new');
+    var offlineWhen = offlineData._queued_at ? Number(offlineData._queued_at) : nowMs;
+
+    // Store full offline data as JSON so the client can render a diff
+    var offlineJson = JSON.stringify(offlineData);
+
+    sheet.appendRow([
+      conflictId,
+      offlineData._row_index || '',
+      String(who || ''),
+      offlineWhen,
+      nowMs,
+      offlineJson
+    ]);
+
+    return sheet.getLastRow(); // 1-based row index of the conflict record
+
+  } catch (e) {
+    // Non-fatal — a failed conflict save must not silently succeed
+    // (the caller already treats this as a conflict regardless)
+    console.error('_saveConflict failed:', e.message);
+    return null;
+  }
+}
+
+function _ensureConflictsSheet(ss) {
+  var sheet = ss.getSheetByName(SHEET_CONFLICTS);
+  if (sheet) return sheet;
+  sheet = ss.insertSheet(SHEET_CONFLICTS);
+  sheet.getRange(1, 1, 1, 6).setValues([[
+    'conflict_id', 'live_row_index', 'offline_who',
+    'offline_when', 'detected_at', 'offline_data_json'
+  ]]);
+  return sheet;
+}
+
+
+// ── Resolve a conflict ────────────────────────────────────────
+//
+// Called by the manager after reviewing the side-by-side diff.
+//
+// keepVersion:
+//   'online'  — discard offline edit; live row stays as-is
+//   'offline' — apply mergedData (the offline version) to the live row
+//   'merge'   — apply mergedData (manager-edited fields) to the live row
+//
+// In all cases: deletes the conflict row from the Conflicts tab.
+// For 'online': live row is not touched.
+// For 'offline' / 'merge': writeRow is called with mergedData.
+
+function conflictResolve(conflictSheetRow, liveRowIndex, keepVersion, mergedData, role, coordinatorName) {
+  try {
+    var ss = SpreadsheetApp.getActiveSpreadsheet();
+
+    // ── Apply the resolved version to the live row ───────────
+    if (keepVersion !== 'online' && mergedData && liveRowIndex && Number(liveRowIndex) > 1) {
+      var data = {};
+      // Copy mergedData fields, ensuring _row_index is set
+      if (typeof mergedData === 'object') {
+        for (var k in mergedData) {
+          if (mergedData.hasOwnProperty(k)) data[k] = mergedData[k];
+        }
+      }
+      data._row_index = Number(liveRowIndex);
+
+      // Remove queue metadata that must not be written to the sheet
+      delete data._queued_at;
+      delete data._local_id;
+      delete data._locked;
+      delete data._last_modified;
+      delete data._created_date;
+
+      // Manager always resolves — pass manager role so all fields are writable
+      var writeResult = writeRow(data, role || 'manager', coordinatorName || '');
+      if (!writeResult.success) {
+        return { success: false, error: 'Could not apply resolution to live row: ' + writeResult.error };
+      }
+    }
+
+    // ── Delete the conflict record from the Conflicts tab ────
+    if (conflictSheetRow && Number(conflictSheetRow) > 1) {
+      try {
+        var conflictSheet = ss.getSheetByName(SHEET_CONFLICTS);
+        if (conflictSheet) {
+          conflictSheet.deleteRow(Number(conflictSheetRow));
+        }
+      } catch (delErr) {
+        // Non-fatal — old row numbers may be stale if sheet was edited manually
+        console.warn('conflictResolve: could not delete conflict row:', delErr.message);
+      }
+    }
+
+    return { success: true };
+
+  } catch (err) {
+    return { success: false, error: 'Conflict resolution failed: ' + err.message };
+  }
+}
+
+
+// ── Presence tab ─────────────────────────────────────────────
+//
+// Two columns: name (string) | last_seen (epoch-ms number)
+// Row 1 is always the header row.
+// The table is always small — typically fewer than 10 rows.
+//
+// presenceWrite: upsert the caller's row + prune stale entries,
+//   then return the current online list in one round-trip.
+//   The client uses the returned list to render avatar bubbles.
+//
+// presenceRead: return the current online list without writing.
+//   Used for read-only polls (not currently wired in the heartbeat
+//   but available for future use).
+//
+// Stale threshold: 90 seconds.
+//   Client heartbeat is every 30 s, so three missed beats before
+//   the server stops returning a user. The client independently
+//   filters at 75 s so avatars disappear before the server prunes.
+
+var PRESENCE_STALE_MS = 90 * 1000;
+
+function presenceWrite(name) {
+  if (!name) return { success: false, error: 'Name required.' };
+
+  var ss    = SpreadsheetApp.getActiveSpreadsheet();
+  var sheet = _ensurePresenceSheet(ss);
+  var nowMs = Date.now();
+  var data  = sheet.getDataRange().getValues();
+
+  // Rebuild rows: header + non-stale entries, upsert caller
+  var kept  = [['name', 'last_seen']];
+  var found = false;
+
+  for (var i = 1; i < data.length; i++) {
+    var rowName = String(data[i][0] || '').trim();
+    if (!rowName) continue;
+
+    var rowTs = _toEpochMs(data[i][1]);
+    if (nowMs - rowTs > PRESENCE_STALE_MS) continue; // prune stale
+
+    if (rowName.toLowerCase() === name.trim().toLowerCase()) {
+      kept.push([name, nowMs]); // update own timestamp
+      found = true;
+    } else {
+      kept.push([rowName, rowTs]);
+    }
+  }
+
+  if (!found) kept.push([name, nowMs]);
+
+  // Rewrite the sheet in one batch (presence is always tiny)
+  sheet.clearContents();
+  sheet.getRange(1, 1, kept.length, 2).setValues(kept);
+
+  // Return active users (the rows we just wrote, excluding header)
+  var users = kept.slice(1).map(function (row) {
+    return { name: String(row[0]), lastSeen: Number(row[1]) };
+  });
+
+  // Piggyback recent Changes tab entries onto the heartbeat response.
+  // The client (manager only) uses these to highlight rows + pulse avatars.
+  // Window: 75 s — slightly more than one heartbeat interval so no changes
+  // are missed between polls even with minor clock drift.
+  var changes = _readRecentChanges(ss, nowMs, 75 * 1000);
+
+  return { success: true, users: users, changes: changes };
+}
+
+function _readRecentChanges(ss, nowMs, windowMs) {
+  try {
+    var sheet = ss.getSheetByName(SHEET_CHANGES);
+    if (!sheet) return [];
+
+    var data = sheet.getDataRange().getValues();
+    var results = [];
+
+    for (var i = 1; i < data.length; i++) {
+      var ts = _toEpochMs(data[i][2]);
+      if (!ts || nowMs - ts > windowMs) continue;
+      results.push({
+        who:   String(data[i][0] || '').trim(),
+        rowId: String(data[i][1] || '').trim(),
+        when:  ts
+      });
+    }
+    return results;
+  } catch (e) {
+    return [];
+  }
+}
+
+function presenceRead() {
+  var ss    = SpreadsheetApp.getActiveSpreadsheet();
+  var sheet = _ensurePresenceSheet(ss);
+  var nowMs = Date.now();
+  var data  = sheet.getDataRange().getValues();
+
+  var users = [];
+  for (var i = 1; i < data.length; i++) {
+    var rowName = String(data[i][0] || '').trim();
+    if (!rowName) continue;
+    var rowTs = _toEpochMs(data[i][1]);
+    if (nowMs - rowTs > PRESENCE_STALE_MS) continue;
+    users.push({ name: rowName, lastSeen: rowTs });
+  }
+
+  return { success: true, users: users };
+}
+
+function _ensurePresenceSheet(ss) {
+  var sheet = ss.getSheetByName(SHEET_PRESENCE);
+  if (sheet) return sheet;
+
+  // Tab doesn't exist yet — create it
+  sheet = ss.insertSheet(SHEET_PRESENCE);
+  sheet.getRange(1, 1, 1, 2).setValues([['name', 'last_seen']]);
+  return sheet;
 }
 
 

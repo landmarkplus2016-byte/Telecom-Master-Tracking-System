@@ -36,11 +36,24 @@ var Sheets = (function () {
   // Cold starts can take 8 s; give generous headroom.
   var REQUEST_TIMEOUT_MS = 45 * 1000; // 45 seconds
 
+  // Presence heartbeat interval (ms). Must be < PRESENCE_STALE_MS.
+  var PRESENCE_INTERVAL_MS = 30 * 1000; // 30 seconds
+
+  // An avatar is hidden on the client side if its last_seen is older
+  // than this threshold. Two missed beats (60 s) before disappearing.
+  var PRESENCE_STALE_MS = 75 * 1000; // 75 seconds
+
+  // Timeout for silent presence requests — short because failures are ignored.
+  var PRESENCE_TIMEOUT_MS = 10 * 1000; // 10 seconds
+
   // ── Internal state ────────────────────────────────────────
 
   var _lastSuccessfulRequestAt = null; // Date | null
   var _coldStartTimerHandle    = null;
   var _coldStartVisible        = false;
+
+  var _presenceName  = null; // set by startPresence()
+  var _presenceTimer = null; // setInterval handle
 
   // ── Public: Authenticate ──────────────────────────────────
 
@@ -181,8 +194,12 @@ var Sheets = (function () {
    * Auth credentials are re-read from sessionStorage on every
    * call so this always reflects the current session.
    *
+   * When called from the offline queue drain, rowData includes
+   * _queued_at (epoch-ms) so the server can detect conflicts.
+   *
    * callback({ success, rowIndex, timestamp })
    * callback({ success:false, error })
+   * callback({ success:false, conflict:true, conflictSheetRow, serverRow })
    */
   function writeRow(rowData, callback) {
     _post(
@@ -190,6 +207,241 @@ var Sheets = (function () {
       { isColdStartCandidate: false, label: 'Saving' },
       callback
     );
+  }
+
+  // ── Public: Resolve a conflict ────────────────────────────
+
+  /**
+   * Notify Apps Script that a conflict has been resolved.
+   *
+   * conflictSheetRow — 1-based row index in the Conflicts sheet tab
+   *                    (returned by the server when conflict was detected)
+   * liveRowIndex     — 1-based row index in the Data sheet for the live row
+   * keepVersion      — 'online' | 'offline' | 'merge'
+   *   'online'  → live row unchanged, conflict copy deleted
+   *   'offline' → write mergedData to live row, conflict copy deleted
+   *   'merge'   → write mergedData to live row, conflict copy deleted
+   * mergedData       — row data object to write (null when keepVersion === 'online')
+   *
+   * callback({ success })
+   * callback({ success:false, error })
+   */
+  function resolveConflict(conflictSheetRow, liveRowIndex, keepVersion, mergedData, callback) {
+    _post(
+      {
+        action:           'conflictResolve',
+        conflictSheetRow: conflictSheetRow,
+        liveRowIndex:     liveRowIndex,
+        keepVersion:      keepVersion,
+        mergedData:       mergedData || null
+      },
+      { isColdStartCandidate: false, label: 'Resolving conflict' },
+      callback
+    );
+  }
+
+  // ── Public: Presence heartbeat ───────────────────────────
+
+  /**
+   * Start the 30-second presence heartbeat.
+   * Called once by app.js after Grid.init() — after the user is
+   * authenticated and the session is active.
+   *
+   * Fires immediately on call, then every PRESENCE_INTERVAL_MS.
+   * Each tick: writes this user's heartbeat to the Presence tab and
+   * reads back the current online list in one round-trip.
+   * All network failures are silently ignored.
+   */
+  function startPresence(name) {
+    if (!name || _presenceTimer) return; // already running
+    _presenceName = name;
+    _heartbeatTick();
+    _presenceTimer = setInterval(_heartbeatTick, PRESENCE_INTERVAL_MS);
+  }
+
+  function _heartbeatTick() {
+    if (!_presenceName) return;
+    if (!navigator.onLine) return; // skip when offline
+
+    _postSilent(
+      { action: 'presenceWrite', presenceName: _presenceName },
+      function (result) {
+        if (!result || !result.success) return;
+        _renderAvatars(result.users || []);
+
+        // Change notifications — manager only, one-directional:
+        // coordinator saves → manager sees highlight + avatar pulse.
+        // Coordinator is never notified of manager edits.
+        var role = sessionStorage.getItem('app_role') || '';
+        if (role === 'manager' && result.changes && result.changes.length) {
+          _handleChanges(result.changes);
+        }
+      }
+    );
+  }
+
+  // ── Internal: apply change notifications ─────────────────
+  //
+  // Receives the `changes` array from the presenceWrite response.
+  // For each entry: highlights the row in the grid (via Grid.highlightChange)
+  // and pulses the coordinator's avatar bubble.
+  //
+  // Duplicate calls for the same rowId are idempotent — Grid.highlightChange
+  // simply resets the clear timer, and re-pulsing an already-pulsing avatar
+  // is a visual no-op.
+
+  function _handleChanges(changes) {
+    changes.forEach(function (change) {
+      // Highlight the changed row in the grid
+      if (typeof Grid !== 'undefined' && Grid.highlightChange) {
+        Grid.highlightChange(change.rowId);
+      }
+
+      // Pulse the avatar of the coordinator who saved
+      if (change.who) _pulseAvatar(change.who);
+    });
+  }
+
+  // Add a brief pulse animation to the named coordinator's avatar bubble.
+  // Pulse is purely visual — no state change, auto-removes the class.
+  function _pulseAvatar(name) {
+    var cluster = document.getElementById('avatar-cluster');
+    if (!cluster) return;
+
+    var safeName = name.replace(/"/g, '\\"');
+    var avatar   = cluster.querySelector('[data-name="' + safeName + '"]');
+    if (!avatar) return;
+
+    // Remove first in case it's already pulsing (re-triggers animation)
+    avatar.classList.remove('presence-avatar--pulse');
+    // Force reflow so removing + re-adding the class restarts the animation
+    void avatar.offsetWidth;
+    avatar.classList.add('presence-avatar--pulse');
+
+    setTimeout(function () {
+      avatar.classList.remove('presence-avatar--pulse');
+    }, 1200);
+  }
+
+  // ── Internal: silent POST for presence ───────────────────
+  //
+  // Like _post but: no cold-start UI, no loading-status text,
+  // short 10-second timeout, all errors silently swallowed.
+  // Still injects auth credentials and updates the cold-start clock.
+
+  function _postSilent(payload, cb) {
+    var url = _getUrl();
+    if (!url) { if (cb) cb(null); return; }
+
+    // Inject credentials exactly like _post
+    var name = sessionStorage.getItem('app_name') || '';
+    var role = sessionStorage.getItem('app_role') || '';
+    var code = sessionStorage.getItem('app_code') || '';
+    if (name && !payload.name) payload.name = name;
+    if (role && !payload.role) payload.role = role;
+    if (code && !payload.code) payload.code = code;
+
+    var aborted = false;
+    var timer = setTimeout(function () {
+      aborted = true;
+      if (cb) cb({ success: false });
+    }, PRESENCE_TIMEOUT_MS);
+
+    fetch(url, {
+      method:  'POST',
+      headers: { 'Content-Type': 'text/plain' },
+      body:    JSON.stringify(payload)
+    })
+    .then(function (r) {
+      if (aborted) return null;
+      return r.ok ? r.json() : null;
+    })
+    .then(function (data) {
+      if (aborted) return;
+      clearTimeout(timer);
+      if (data) _lastSuccessfulRequestAt = Date.now(); // server is awake
+      if (cb) cb(data || { success: false });
+    })
+    .catch(function () {
+      if (!aborted) { clearTimeout(timer); if (cb) cb({ success: false }); }
+    });
+  }
+
+  // ── Internal: render avatar bubbles ──────────────────────
+  //
+  // Updates #avatar-cluster inside #presence-bar.
+  // Excludes the current user. Skips users whose lastSeen timestamp
+  // is older than PRESENCE_STALE_MS (belt-and-suspenders on top of
+  // the server's own prune, handles clock skew gracefully).
+
+  function _renderAvatars(users) {
+    var presenceBar = document.getElementById('presence-bar');
+    if (!presenceBar) return;
+
+    var myName = (sessionStorage.getItem('app_name') || '').trim().toLowerCase();
+    var now    = Date.now();
+
+    // Filter: exclude self, exclude stale
+    var active = users.filter(function (u) {
+      if (!u.name) return false;
+      if (u.name.trim().toLowerCase() === myName) return false;
+      if (now - Number(u.lastSeen) > PRESENCE_STALE_MS) return false;
+      return true;
+    });
+
+    // Ensure the cluster container exists, inserted before the logout button
+    var cluster = document.getElementById('avatar-cluster');
+    if (!cluster) {
+      cluster = document.createElement('div');
+      cluster.id = 'avatar-cluster';
+      var logoutBtn = document.getElementById('logout-btn');
+      if (logoutBtn) {
+        presenceBar.insertBefore(cluster, logoutBtn);
+      } else {
+        presenceBar.appendChild(cluster);
+      }
+    }
+
+    // Build a fast lookup of currently active names
+    var activeMap = {};
+    active.forEach(function (u) { activeMap[u.name] = u; });
+
+    // Remove avatars for users who have gone offline
+    var existing = cluster.querySelectorAll('.presence-avatar');
+    for (var i = 0; i < existing.length; i++) {
+      var el   = existing[i];
+      var eName = el.getAttribute('data-name');
+      if (!activeMap[eName]) {
+        el.classList.add('presence-avatar--leaving');
+        // Remove from DOM after the CSS transition completes
+        (function (node) {
+          setTimeout(function () {
+            if (node.parentNode) node.parentNode.removeChild(node);
+          }, 300);
+        }(el));
+      }
+    }
+
+    // Add avatars for users not yet rendered
+    active.forEach(function (u) {
+      var safeAttr = u.name.replace(/"/g, '&quot;');
+      if (cluster.querySelector('[data-name="' + safeAttr + '"]')) return;
+
+      var avatar = document.createElement('div');
+      avatar.className = 'presence-avatar';
+      avatar.setAttribute('data-name', u.name);
+      avatar.title     = u.name + ' \u2014 online';
+      avatar.textContent = _initials(u.name);
+      cluster.appendChild(avatar);
+    });
+  }
+
+  function _initials(name) {
+    var parts = String(name || '').trim().split(/\s+/);
+    if (parts.length >= 2) {
+      return (parts[0].charAt(0) + parts[parts.length - 1].charAt(0)).toUpperCase();
+    }
+    return parts[0].slice(0, 2).toUpperCase();
   }
 
   // ── Internal: POST to Apps Script ────────────────────────
@@ -406,6 +658,63 @@ var Sheets = (function () {
         'font-size: 10px;',
       '}',
 
+      // ── Presence avatar cluster ────────────────────────────
+
+      '#avatar-cluster {',
+        'display: flex;',
+        'align-items: center;',
+        'gap: 4px;',
+        'margin-right: 4px;',
+      '}',
+
+      '.presence-avatar {',
+        'width: 28px;',
+        'height: 28px;',
+        'border-radius: 50%;',
+        'background: var(--bg-navy-mid, #243d5c);',
+        'border: 1.5px solid var(--accent, #c9973a);',
+        'color: var(--text-on-navy, #e8edf3);',
+        'font-family: var(--font-display, sans-serif);',
+        'font-weight: 700;',
+        'font-size: 10px;',
+        'letter-spacing: 0.03em;',
+        'display: flex;',
+        'align-items: center;',
+        'justify-content: center;',
+        'cursor: default;',
+        'user-select: none;',
+        'animation: avatar-in 0.25s ease-out;',
+        'transition: opacity 0.25s ease, transform 0.25s ease;',
+        'flex-shrink: 0;',
+      '}',
+
+      '.presence-avatar:hover {',
+        'border-color: var(--accent-bright, #e8b04a);',
+        'background: var(--bg-navy-deep, #0f1e30);',
+      '}',
+
+      // Fade + shrink on leave
+      '.presence-avatar--leaving {',
+        'opacity: 0;',
+        'transform: scale(0.4);',
+      '}',
+
+      // Brief gold pulse when this coordinator just saved a row
+      '.presence-avatar--pulse {',
+        'animation: avatar-pulse 1.2s ease-out !important;',
+      '}',
+
+      '@keyframes avatar-pulse {',
+        '0%   { box-shadow: 0 0 0 0   rgba(201,151,58,0.9); }',
+        '50%  { box-shadow: 0 0 0 8px rgba(201,151,58,0.3); }',
+        '100% { box-shadow: 0 0 0 14px rgba(201,151,58,0);  }',
+      '}',
+
+      '@keyframes avatar-in {',
+        'from { opacity: 0; transform: scale(0.4); }',
+        'to   { opacity: 1; transform: scale(1);   }',
+      '}',
+
     ].join('\n');
     document.head.appendChild(s);
   }());
@@ -413,12 +722,14 @@ var Sheets = (function () {
   // ── Expose ────────────────────────────────────────────────
 
   return {
-    authenticate: authenticate,
-    fetchConfig:  fetchConfig,
-    fetchAllRows: fetchAllRows,
-    fetchDelta:   fetchDelta,
-    writeBatch:   writeBatch,
-    writeRow:     writeRow
+    authenticate:    authenticate,
+    fetchConfig:     fetchConfig,
+    fetchAllRows:    fetchAllRows,
+    fetchDelta:      fetchDelta,
+    writeBatch:      writeBatch,
+    writeRow:        writeRow,
+    resolveConflict: resolveConflict,
+    startPresence:   startPresence
   };
 
 }());

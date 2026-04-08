@@ -84,6 +84,12 @@
         // Init grid AFTER dropdowns are loaded so column sources are set
         Grid.init(role, name);
 
+        // Start presence heartbeat — fires immediately then every 30 s.
+        // Must come after Grid.init so the logout button (inserted by
+        // _renderHeader) already exists in #presence-bar when the first
+        // avatar cluster is created.
+        Sheets.startPresence(name);
+
         // ── Offline startup: skip network fetch, load from IDB ──────
         if (!navigator.onLine) {
           _setLoadingStatus('Loading from cache\u2026');
