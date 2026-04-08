@@ -52,8 +52,9 @@ var Sheets = (function () {
   var _coldStartTimerHandle    = null;
   var _coldStartVisible        = false;
 
-  var _presenceName  = null; // set by startPresence()
-  var _presenceTimer = null; // setInterval handle
+  var _presenceName      = null; // set by startPresence()
+  var _presenceTimer     = null; // setInterval handle
+  var _onChangesCallback = null; // called when manager receives change notifications
 
   // ── Public: Authenticate ──────────────────────────────────
 
@@ -251,12 +252,23 @@ var Sheets = (function () {
    * Each tick: writes this user's heartbeat to the Presence tab and
    * reads back the current online list in one round-trip.
    * All network failures are silently ignored.
+   *
+   * onChanges (optional) — callback fired when the manager's heartbeat
+   * returns new coordinator changes. app.js uses this to trigger an
+   * immediate delta sync so the manager's grid reflects the updated
+   * row data, not just the row highlight.
    */
-  function startPresence(name) {
+  function startPresence(name, onChanges) {
     if (!name || _presenceTimer) return; // already running
-    _presenceName = name;
+    _presenceName      = name;
+    _onChangesCallback = onChanges || null;
+
     _heartbeatTick();
     _presenceTimer = setInterval(_heartbeatTick, PRESENCE_INTERVAL_MS);
+
+    // Fire a heartbeat immediately when the device comes back online
+    // so avatars refresh without waiting up to 30 seconds.
+    window.addEventListener('online', _heartbeatTick);
   }
 
   function _heartbeatTick() {
@@ -300,6 +312,11 @@ var Sheets = (function () {
       // Pulse the avatar of the coordinator who saved
       if (change.who) _pulseAvatar(change.who);
     });
+
+    // Trigger an immediate delta sync so the manager's grid shows the
+    // actual updated data (not just the row highlight). Without this,
+    // the manager waits up to 2 minutes for the background sync to run.
+    if (_onChangesCallback) _onChangesCallback();
   }
 
   // Add a brief pulse animation to the named coordinator's avatar bubble.

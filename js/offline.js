@@ -142,6 +142,9 @@ var Offline = (function () {
       var req = tx.objectStore(STORE_CONFLICTS).count();
       req.onsuccess = function (e) {
         _conflictCount = e.target.result || 0;
+        // Show the current online/offline state immediately on startup.
+        // Without this, the status bar is blank until the first save or event.
+        _updateIndicator();
         _updateConflictIndicator();
         if (cb) cb();
       };
@@ -559,6 +562,9 @@ var Offline = (function () {
   function _onOnline() {
     _isOnline = true;
     console.log('[offline.js] Network restored — processing queue');
+    // Update immediately: show "● N pending" or "✓ All synced" rather than
+    // leaving the "Offline" label up until the first _processQueue tick.
+    _updateIndicator();
     _processQueue();
   }
 
@@ -577,9 +583,12 @@ var Offline = (function () {
     clearTimeout(_syncClearTimer);
 
     if (!_isOnline) {
+      var offlineLabel = _pendingCount > 0
+        ? 'Offline \u2014 ' + _pendingCount + ' change' + (_pendingCount === 1 ? '' : 's') + ' queued'
+        : 'Offline \u2014 changes will be queued';
       el.innerHTML =
         '<span class="sync-dot sync-dot--offline"></span>' +
-        '<span class="sync-label">Offline \u2014 changes queued</span>';
+        '<span class="sync-label">' + offlineLabel + '</span>';
       return;
     }
 

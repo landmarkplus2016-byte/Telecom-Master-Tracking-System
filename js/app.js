@@ -88,7 +88,15 @@
         // Must come after Grid.init so the logout button (inserted by
         // _renderHeader) already exists in #presence-bar when the first
         // avatar cluster is created.
-        Sheets.startPresence(name);
+        //
+        // The onChanges callback triggers an immediate delta sync when the
+        // manager's heartbeat returns new coordinator saves. Without this,
+        // the manager's grid only updates on the 2-minute background tick.
+        Sheets.startPresence(name, function _onCoordinatorChanges() {
+          if (role !== 'manager') return;
+          var since = Offline.getLastSyncTime();
+          if (since) _runDeltaSync(since);
+        });
 
         // ── Offline startup: skip network fetch, load from IDB ──────
         if (!navigator.onLine) {
