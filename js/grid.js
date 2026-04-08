@@ -322,28 +322,128 @@ var Grid = (function () {
     }
   }
 
-  // ── Manual data refresh ───────────────────────────────────
-  // Fetches all rows fresh from Apps Script and reloads the grid.
-  // Replaced by delta sync (last_modified polling) in Stage 3.
+  // ── Manual data refresh ──────────────────────────────────
+  // Delta-first: fetches only rows changed since the last sync.
+  // Falls back to a full fetch if no sync timestamp exists yet.
 
   function _refreshData(btn) {
     if (btn) {
-      btn.disabled = true;
-      btn.textContent = 'Refreshing\u2026';
+      btn.disabled  = true;
+      btn.textContent = 'Syncing\u2026';
     }
-    Sheets.fetchAllRows(function (result) {
-      if (btn) {
-        btn.disabled = false;
-        btn.innerHTML = '&#8635; Refresh';
+
+    var since = (typeof Offline !== 'undefined') ? Offline.getLastSyncTime() : 0;
+
+    if (since) {
+      // ── Delta sync path ────────────────────────────────────
+      Sheets.fetchDelta(since, function (result) {
+        if (btn) { btn.disabled = false; btn.innerHTML = '&#8635; Refresh'; }
+        if (!result.success) {
+          console.error('[grid.js] delta refresh failed:', result.error);
+          _showSaveError('Sync failed: ' + result.error);
+          return;
+        }
+        if (!result.rows.length) {
+          console.log('[grid.js] delta refresh — no changes');
+          return;
+        }
+        // Filter out rows with pending local edits — they must not be overwritten
+        Offline.getPendingRowIndexes(function (pendingMap) {
+          var toApply = result.rows.filter(function (r) {
+            return !pendingMap[String(r._row_index)];
+          });
+          Offline.storeRows(toApply);
+          if (toApply.length) applyDelta(toApply);
+          Offline.setLastSyncTime(result.serverTime);
+          console.log('[grid.js] delta refresh — applied', toApply.length, 'rows');
+        });
+      });
+    } else {
+      // ── First-load fallback (no sync timestamp yet) ────────
+      Sheets.fetchAllRows(function (result) {
+        if (btn) { btn.disabled = false; btn.innerHTML = '&#8635; Refresh'; }
+        if (!result.success) {
+          console.error('[grid.js] refresh failed:', result.error);
+          _showSaveError('Refresh failed: ' + result.error);
+          return;
+        }
+        Offline.storeRows(result.rows);
+        Offline.setLastSyncTime(result.serverTime);
+        loadData(result.rows);
+      });
+    }
+  }
+
+  // ── Apply a delta of changed rows without a full reload ───
+  //
+  // Called after background sync and manual Refresh (delta path).
+  // Updates existing rows in _data in-place and appends new ones.
+  // Does NOT reset the scroll position — surgical re-render only.
+  //
+  // rows — array of row objects from fetchDelta, each with _row_index.
+
+  function applyDelta(rows) {
+    if (!rows || !rows.length || !_hot) return;
+
+    // Build a fast lookup: _row_index → _data array position
+    var idxMap = {};
+    for (var i = 0; i < _data.length; i++) {
+      if (_data[i] && _data[i]._row_index) idxMap[_data[i]._row_index] = i;
+    }
+
+    var hasNewRows = false;
+
+    rows.forEach(function (incoming) {
+      var dataPos = idxMap[incoming._row_index];
+      if (dataPos !== undefined) {
+        // Existing row — merge all incoming keys into the live data object.
+        // HOT is bound to _data by reference, so in-place mutation is reflected
+        // immediately on the next _hot.render() call.
+        var target = _data[dataPos];
+        Object.keys(incoming).forEach(function (k) {
+          target[k] = incoming[k];
+        });
+        // Normalize date fields in the merged row (same logic as loadData)
+        _visibleCols.forEach(function (col) {
+          if (col.type === 'date' && target[col.key]) {
+            target[col.key] = _normalizeDate(target[col.key]);
+          }
+        });
+        // Recompute pricing for the updated row
+        if (typeof Pricing !== 'undefined' && Pricing.isReady()) {
+          _applyPricing(dataPos);
+        }
+      } else {
+        // New row — normalize dates and append
+        _visibleCols.forEach(function (col) {
+          if (col.type === 'date' && incoming[col.key]) {
+            incoming[col.key] = _normalizeDate(incoming[col.key]);
+          }
+        });
+        var newPos = _data.push(incoming) - 1;
+        idxMap[incoming._row_index] = newPos;
+        hasNewRows = true;
+        if (typeof Pricing !== 'undefined' && Pricing.isReady()) {
+          _applyPricing(newPos);
+        }
       }
-      if (!result.success) {
-        console.error('[grid.js] refresh failed:', result.error);
-        _showSaveError('Refresh failed: ' + result.error);
-        return;
-      }
-      console.log('[grid.js] refresh — rows received:', result.rows.length);
-      loadData(result.rows);
     });
+
+    // Rebuild locked-row index for coordinator (lock status may have changed)
+    if (_role === 'coordinator') {
+      _lockedRows = {};
+      _data.forEach(function (row, pos) {
+        if (row && row._locked) _lockedRows[pos] = true;
+      });
+    }
+
+    // Re-tell HOT about the data so new rows are counted correctly
+    if (hasNewRows) {
+      _hot.loadData(_data);
+    } else {
+      _hot.render();
+    }
+    _updateRowCount(_data.length);
   }
 
   // ── Handsontable init ─────────────────────────────────────
@@ -1271,6 +1371,7 @@ var Grid = (function () {
     init:            init,
     loadData:        loadData,
     applyDropdowns:  applyDropdowns,
+    applyDelta:      applyDelta,
     updateRowIndex:  updateRowIndex,
   };
 

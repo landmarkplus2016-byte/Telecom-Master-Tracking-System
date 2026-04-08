@@ -99,33 +99,113 @@
           return;
         }
 
-        // ── Online: fetch from server ───────────────────────────────
-        _setLoadingStatus('Loading data\u2026');
-        Sheets.fetchAllRows(function (result) {
-          _hide('screen-loading');
-          if (!result.success) {
-            console.error('[app.js] fetchAllRows failed:', result.error);
-            // Try IDB cache as fallback before showing an error
-            Offline.getAllRows(function (cachedRows) {
-              if (cachedRows.length) {
-                console.warn('[app.js] fetchAllRows failed — showing', cachedRows.length, 'cached rows');
-                Grid.loadData(cachedRows);
-              } else {
-                _showError('Could not load data: ' + result.error);
-              }
+        var since = Offline.getLastSyncTime();
+
+        if (!since) {
+          // ── First ever load: full fetch ─────────────────────────
+          _setLoadingStatus('Loading data\u2026');
+          Sheets.fetchAllRows(function (result) {
+            _hide('screen-loading');
+            if (!result.success) {
+              console.error('[app.js] fetchAllRows failed:', result.error);
+              Offline.getAllRows(function (cachedRows) {
+                if (cachedRows.length) {
+                  console.warn('[app.js] fetchAllRows failed — showing', cachedRows.length, 'cached rows');
+                  Grid.loadData(cachedRows);
+                } else {
+                  _showError('Could not load data: ' + result.error);
+                }
+              });
+              return;
+            }
+            console.log('[app.js] first load — rows received:', result.rows.length);
+            Offline.storeRows(result.rows);
+            Offline.setLastSyncTime(result.serverTime);
+            Grid.loadData(result.rows);
+            _startBackgroundSync();
+          });
+
+        } else {
+          // ── Subsequent load: show cache immediately, sync delta in background ──
+          _setLoadingStatus('Loading from cache\u2026');
+          Offline.getAllRows(function (cachedRows) {
+            _hide('screen-loading');
+            Grid.loadData(cachedRows);
+            console.log('[app.js] cache loaded —', cachedRows.length, 'rows; fetching delta since', since);
+
+            // Fetch changes since last sync without blocking the UI
+            _runDeltaSync(since, function () {
+              _startBackgroundSync();
             });
-            return;
-          }
-          console.log('[app.js] fetchAllRows — rows received:', result.rows.length);
-          if (result.rows.length > 0) {
-            console.log('[app.js] first row sample:', JSON.stringify(result.rows[0]));
-          }
-          // Cache all rows in IndexedDB for offline use
-          Offline.storeRows(result.rows);
-          Grid.loadData(result.rows);
-        });
+          });
+        }
       });
     });
+  }
+
+  // ── Delta sync ────────────────────────────────────────────
+  //
+  // Fetches rows changed since `since` (epoch-ms), skips any row that
+  // has a pending local edit in the queue, merges the rest into IDB
+  // and the grid, and advances the sync cursor.
+  //
+  // cb is optional — called when done (success or failure).
+
+  function _runDeltaSync(since, cb) {
+    Sheets.fetchDelta(since, function (result) {
+      if (!result.success) {
+        console.warn('[app.js] delta sync failed:', result.error);
+        if (cb) cb();
+        return;
+      }
+
+      var changed = result.rows || [];
+      console.log('[app.js] delta sync — server returned', changed.length, 'changed rows');
+
+      if (!changed.length) {
+        Offline.setLastSyncTime(result.serverTime);
+        if (cb) cb();
+        return;
+      }
+
+      // Skip rows that have pending local edits to avoid overwriting them
+      Offline.getPendingRowIndexes(function (pendingMap) {
+        var toApply = changed.filter(function (r) {
+          return !pendingMap[String(r._row_index)];
+        });
+
+        if (toApply.length) {
+          Offline.storeRows(toApply);
+          Grid.applyDelta(toApply);
+          console.log('[app.js] delta sync applied', toApply.length, 'rows;',
+            changed.length - toApply.length, 'skipped (pending local edits)');
+        }
+
+        Offline.setLastSyncTime(result.serverTime);
+        if (cb) cb();
+      });
+    });
+  }
+
+  // ── Background sync timer ─────────────────────────────────
+  //
+  // Polls for changes every BACKGROUND_SYNC_INTERVAL_MS while the
+  // app is open. Only runs when the tab is visible and the device
+  // is online — skips silently otherwise.
+
+  var BACKGROUND_SYNC_INTERVAL_MS = 2 * 60 * 1000; // 2 minutes
+  var _bgSyncTimer = null;
+
+  function _startBackgroundSync() {
+    if (_bgSyncTimer) return; // already running
+    _bgSyncTimer = setInterval(function () {
+      if (!navigator.onLine) return;
+      if (document.hidden)   return;
+      var since = Offline.getLastSyncTime();
+      if (!since) return;
+      console.log('[app.js] background sync tick');
+      _runDeltaSync(since);
+    }, BACKGROUND_SYNC_INTERVAL_MS);
   }
 
   // ── Helpers ───────────────────────────────────────────────

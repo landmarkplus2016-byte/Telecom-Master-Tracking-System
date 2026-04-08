@@ -58,21 +58,103 @@ var Sheets = (function () {
     );
   }
 
-  // ── Public: Fetch all rows ────────────────────────────────
+  // ── Public: Fetch all rows (first load) ──────────────────
 
   /**
-   * Full data fetch — used on first load only.
-   * Stage 3 will replace this with delta sync.
+   * Full data fetch — used ONLY on the very first load when there
+   * is no sync timestamp in localStorage yet.
+   * All subsequent loads must call fetchDelta instead.
    *
-   * callback({ success, rows, columns, timestamp })
+   * callback({ success, rows, columns, serverTime })
    * callback({ success:false, error })
    */
   function fetchAllRows(callback) {
     _post(
       { action: 'getRows' },
       { isColdStartCandidate: true, label: 'Loading data' },
-      callback
+      function (result) {
+        if (result.success) _updateLastSyncTime(result.serverTime);
+        callback(result);
+      }
     );
+  }
+
+  // ── Public: Delta fetch ───────────────────────────────────
+
+  /**
+   * Fetch only rows modified after `since` (epoch-ms number).
+   * Used on every app open after the first, and for background sync.
+   *
+   * since — epoch-ms number from Offline.getLastSyncTime().
+   *         Pass 0 or null to get all rows (equivalent to fetchAllRows).
+   *
+   * callback({ success, rows, columns, serverTime })
+   * callback({ success:false, error })
+   */
+  function fetchDelta(since, callback) {
+    var payload = { action: 'getRows' };
+    if (since) payload.since = since;
+
+    _post(
+      payload,
+      { isColdStartCandidate: false, label: since ? 'Syncing changes' : 'Loading data' },
+      function (result) {
+        if (result.success) _updateLastSyncTime(result.serverTime);
+        callback(result);
+      }
+    );
+  }
+
+  // ── Public: Batch write ───────────────────────────────────
+
+  /**
+   * Write many rows to Apps Script in chunks of 50.
+   * Used for TSR reconciliation and other bulk operations.
+   *
+   * rows       — array of row objects (same shape as writeRow rowData)
+   * onProgress — optional function(done, total) called after each chunk
+   * callback({ success, results })  — results is array of per-row outcomes
+   */
+  function writeBatch(rows, onProgress, callback) {
+    if (!rows || !rows.length) {
+      if (callback) callback({ success: true, results: [] });
+      return;
+    }
+
+    var BATCH_SIZE  = 50;
+    var total       = rows.length;
+    var allResults  = [];
+    var batchStart  = 0;
+
+    function sendNext() {
+      if (batchStart >= total) {
+        if (callback) callback({ success: true, results: allResults });
+        return;
+      }
+
+      var chunk = rows.slice(batchStart, batchStart + BATCH_SIZE);
+      var done  = Math.min(batchStart + BATCH_SIZE, total);
+
+      if (onProgress) onProgress(done, total);
+
+      _post(
+        { action: 'writeBatch', rows: chunk },
+        { isColdStartCandidate: false,
+          label: 'Syncing ' + done + ' of ' + total + ' rows' },
+        function (result) {
+          if (!result.success) {
+            // Hard failure — stop the batch and report
+            if (callback) callback(result);
+            return;
+          }
+          allResults = allResults.concat(result.results || []);
+          batchStart += BATCH_SIZE;
+          sendNext();
+        }
+      );
+    }
+
+    sendNext();
   }
 
   // ── Public: Fetch price config ───────────────────────────
@@ -190,6 +272,22 @@ var Sheets = (function () {
       _hideColdStart();
       callback({ success: false, error: _friendlyError(err) });
     });
+  }
+
+  // ── Last-sync timestamp indicator ────────────────────────
+  //
+  // Updates #last-sync-time in the status bar after every successful
+  // fetch (full or delta). serverTime is an epoch-ms number from the server.
+
+  function _updateLastSyncTime(serverTime) {
+    var el = document.getElementById('last-sync-time');
+    if (!el || !serverTime) return;
+
+    var d   = new Date(serverTime);
+    var hh  = String(d.getHours()).padStart(2, '0');
+    var mm  = String(d.getMinutes()).padStart(2, '0');
+    var ss  = String(d.getSeconds()).padStart(2, '0');
+    el.textContent = 'Synced ' + hh + ':' + mm + ':' + ss;
   }
 
   // ── Cold start ────────────────────────────────────────────
@@ -318,6 +416,8 @@ var Sheets = (function () {
     authenticate: authenticate,
     fetchConfig:  fetchConfig,
     fetchAllRows: fetchAllRows,
+    fetchDelta:   fetchDelta,
+    writeBatch:   writeBatch,
     writeRow:     writeRow
   };
 

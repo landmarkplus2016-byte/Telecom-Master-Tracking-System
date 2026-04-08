@@ -164,6 +164,54 @@ var Offline = (function () {
     }
   }
 
+  // ── Public: sync timestamp ───────────────────────────────
+  //
+  // The sync cursor is the serverTime returned by the last successful
+  // getRows call. Stored in localStorage so it survives page reloads.
+  // All subsequent fetchDelta calls pass this value as `since`.
+
+  var LS_SYNC_KEY = 'sync_last_modified';
+
+  function getLastSyncTime() {
+    var val = localStorage.getItem(LS_SYNC_KEY);
+    return val ? Number(val) : 0;
+  }
+
+  function setLastSyncTime(ts) {
+    if (ts) localStorage.setItem(LS_SYNC_KEY, String(ts));
+  }
+
+  // ── Public: pending row index lookup ─────────────────────
+  //
+  // Returns an object { rowIndex: true } for every sync_queue entry
+  // that has a real _row_index (existing rows with pending edits).
+  // New rows (only a _local_id, no _row_index) are NOT in the map.
+  //
+  // Used by the delta sync logic to skip server rows that would
+  // overwrite in-flight local edits.
+  //
+  // callback(pendingMap) where pendingMap is { "42": true, "87": true, ... }
+
+  function getPendingRowIndexes(cb) {
+    if (!_db) { cb({}); return; }
+    try {
+      var tx  = _db.transaction([STORE_QUEUE], 'readonly');
+      var req = tx.objectStore(STORE_QUEUE).getAll();
+      req.onsuccess = function (e) {
+        var entries = e.target.result || [];
+        var map = {};
+        entries.forEach(function (entry) {
+          var ri = entry.rowData && entry.rowData._row_index;
+          if (ri) map[String(ri)] = true;
+        });
+        cb(map);
+      };
+      req.onerror = function () { cb({}); };
+    } catch (e) {
+      cb({});
+    }
+  }
+
   // ── Public: queue or execute a row save ───────────────────
 
   /**
@@ -494,10 +542,13 @@ var Offline = (function () {
   // ── Expose ────────────────────────────────────────────────
 
   return {
-    init:      init,
-    storeRows: storeRows,
-    getAllRows: getAllRows,
-    queueSave: queueSave
+    init:                 init,
+    storeRows:            storeRows,
+    getAllRows:            getAllRows,
+    queueSave:            queueSave,
+    getLastSyncTime:      getLastSyncTime,
+    setLastSyncTime:      setLastSyncTime,
+    getPendingRowIndexes: getPendingRowIndexes
   };
 
 }());

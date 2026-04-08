@@ -107,7 +107,13 @@ var ALL_COLUMNS = [
   'received_from_cc',           // 39  Received from CC
   'contractor_invoice_num',     // 40  Contractor Invoice #
   'vf_invoice_submission_date', // 41  VF Invoice Submission Date
-  'cash_received_date'          // 42  Cash Received Date
+  'cash_received_date',         // 42  Cash Received Date
+
+  // ── System metadata — hidden from all grid views ──
+  // Stored in the sheet but never rendered in the UI.
+  // Returned in API responses as _last_modified / _created_date (epoch ms).
+  'last_modified',              // 43  Unix ms timestamp — set on every writeRow
+  'created_date'                // 44  Unix ms timestamp — set on row creation only
 ];
 
 // Keys the coordinator role can see in the grid.
@@ -135,9 +141,10 @@ var COORDINATOR_STRIPPED_KEYS = (function () {
   return stripped;
 }());
 
-// Keys visible to invoicing + manager: all except row_num
+// Keys visible to invoicing + manager: all except row_num and system metadata.
+// last_modified / created_date are returned separately as _last_modified / _created_date.
 var INVOICING_MANAGER_VISIBLE_KEYS = ALL_COLUMNS.filter(function (k) {
-  return k !== 'row_num';
+  return k !== 'row_num' && k !== 'last_modified' && k !== 'created_date';
 });
 
 
@@ -175,10 +182,14 @@ function handleRequest(e) {
         return jsonResponse(authResult);
 
       case 'getRows':
-        return jsonResponse(getRows(authResult.role, authResult.name));
+        // params.since — optional epoch-ms number; when set, only rows modified after it are returned
+        return jsonResponse(getRows(authResult.role, authResult.name, params.since));
 
       case 'writeRow':
         return jsonResponse(writeRow(params.row, authResult.role, authResult.name));
+
+      case 'writeBatch':
+        return jsonResponse(writeBatch(params.rows, authResult.role, authResult.name));
 
       case 'getConfig':
         return jsonResponse(getConfigData());
@@ -299,29 +310,39 @@ function getTeamMembers() {
 
 
 // ── Read rows ─────────────────────────────────────────────────
+//
+// since — optional epoch-ms number (Number or numeric string).
+//   When provided: only return rows where _last_modified > since.
+//   Rows with no last_modified value (legacy rows) are ALWAYS returned
+//   so that existing data is never silently hidden during the migration
+//   period before all rows have been stamped.
+// serverTime is always returned so the client can save it as the new
+// sync cursor after a successful fetch.
 
-function getRows(role, coordinatorName) {
+function getRows(role, coordinatorName, since) {
+  var sinceMs   = since ? Number(since) : 0;
+  var serverTime = Date.now();
+
   var ss        = SpreadsheetApp.getActiveSpreadsheet();
   var dataSheet = ss.getSheetByName(SHEET_DATA);
 
   if (!dataSheet) {
     return {
-      success:   true,
-      rows:      [],
-      columns:   getVisibleColumns(role),
-      timestamp: new Date().toISOString()
+      success:    true,
+      rows:       [],
+      columns:    getVisibleColumns(role),
+      serverTime: serverTime
     };
   }
 
   var values = dataSheet.getDataRange().getValues();
 
-  // Sheet is empty or header-only with no data rows
   if (values.length < 2) {
     return {
-      success:   true,
-      rows:      [],
-      columns:   getVisibleColumns(role),
-      timestamp: new Date().toISOString()
+      success:    true,
+      rows:       [],
+      columns:    getVisibleColumns(role),
+      serverTime: serverTime
     };
   }
 
@@ -353,10 +374,28 @@ function getRows(role, coordinatorName) {
     // Include the 1-based sheet row number so the client can pass it back on updates
     rowObj._row_index = i + 1;
 
+    // ── Metadata: read last_modified / created_date as epoch-ms numbers ──
+    // Exposed as _last_modified / _created_date so they survive the
+    // coordinator strip loop below (which only strips ALL_COLUMNS keys).
+    var lmIdx = colIndexMap['last_modified'];
+    rowObj._last_modified = lmIdx !== undefined ? _toEpochMs(rawRow[lmIdx]) : 0;
+
+    var cdIdx = colIndexMap['created_date'];
+    rowObj._created_date = cdIdx !== undefined ? _toEpochMs(rawRow[cdIdx]) : 0;
+
+    // Remove the raw string versions — only the _prefixed ones are sent to clients
+    delete rowObj['last_modified'];
+    delete rowObj['created_date'];
+
+    // ── Delta filter ─────────────────────────────────────────────
+    // Skip rows not changed since the client's last sync.
+    // Rows without a timestamp (legacy rows before delta sync was added)
+    // always pass through so existing data is never lost.
+    if (sinceMs && rowObj._last_modified && rowObj._last_modified <= sinceMs) continue;
+
     // ── Role-based row and column filtering ───────────────────
 
     if (role === 'coordinator') {
-      // Only rows owned by this coordinator
       var owner = String(rowObj.coordinator_name || '').trim().toLowerCase();
       var self  = String(coordinatorName || '').trim().toLowerCase();
       if (owner !== self) continue;
@@ -365,7 +404,6 @@ function getRows(role, coordinatorName) {
       // client knows this row is read-only without ever seeing acceptance_status.
       rowObj._locked = (String(rowObj.acceptance_status || '').trim() !== '');
 
-      // Strip coordinator_name + all invoicing columns from response
       for (var stripped in COORDINATOR_STRIPPED_KEYS) {
         delete rowObj[stripped];
       }
@@ -378,10 +416,10 @@ function getRows(role, coordinatorName) {
   }
 
   return {
-    success:   true,
-    rows:      rows,
-    columns:   getVisibleColumns(role),
-    timestamp: new Date().toISOString()
+    success:    true,
+    rows:       rows,
+    columns:    getVisibleColumns(role),
+    serverTime: serverTime
   };
 }
 
@@ -397,6 +435,35 @@ function buildColumnIndexMap(headers) {
     if (idx !== -1) map[key] = idx;
   }
   return map;
+}
+
+// Convert any value to an epoch-ms number for last_modified / created_date.
+// Handles: JS Date objects (from Sheets), numeric strings, ISO strings.
+// Returns 0 if the value cannot be parsed.
+function _toEpochMs(value) {
+  if (!value && value !== 0) return 0;
+  if (value instanceof Date) return value.getTime();
+  var n = Number(value);
+  if (!isNaN(n) && n > 0) return n;
+  // ISO string fallback (old rows stored as ISO before epoch-ms migration)
+  var d = new Date(value);
+  return isNaN(d.getTime()) ? 0 : d.getTime();
+}
+
+// Ensure every column in ALL_COLUMNS exists as a header in the Data sheet.
+// Adds any missing columns to the right of the existing headers.
+// Called at the start of writeRow so new system columns (last_modified etc.)
+// are added automatically without manual sheet migration.
+function ensureColumns(dataSheet, headerRow) {
+  var missing = [];
+  for (var k = 0; k < ALL_COLUMNS.length; k++) {
+    if (headerRow.indexOf(ALL_COLUMNS[k]) === -1) {
+      missing.push(ALL_COLUMNS[k]);
+    }
+  }
+  if (!missing.length) return;
+  var nextCol = headerRow.length + 1;
+  dataSheet.getRange(1, nextCol, 1, missing.length).setValues([missing]);
 }
 
 function formatCell(value) {
@@ -435,7 +502,7 @@ function writeRow(rowData, role, coordinatorName) {
     return { success: false, error: 'Data tab not found.' };
   }
 
-  var now = new Date().toISOString();
+  var nowMs = Date.now(); // epoch-ms — safe to store as a number in Sheets
 
   // ── Coordinator cannot set Acceptance Status ──
   if (role === 'coordinator' &&
@@ -449,8 +516,11 @@ function writeRow(rowData, role, coordinatorName) {
     rowData.coordinator_name = coordinatorName;
   }
 
-  // Always refresh last_modified
-  rowData.last_modified = now;
+  // Always stamp last_modified; stamp created_date on new rows only
+  rowData.last_modified = nowMs;
+  if (!rowData._row_index && !rowData.created_date) {
+    rowData.created_date = nowMs;
+  }
 
   // ── Ensure Data tab has a header row ──
   var allValues = dataSheet.getDataRange().getValues();
@@ -462,6 +532,12 @@ function writeRow(rowData, role, coordinatorName) {
     dataSheet.appendRow(ALL_COLUMNS);
     allValues = dataSheet.getDataRange().getValues();
     headerRow = allValues[0].map(function (h) { return String(h).trim(); });
+  } else {
+    // Add any missing columns (e.g. last_modified, created_date on existing sheets)
+    ensureColumns(dataSheet, headerRow);
+    // Re-read headers if columns were added
+    headerRow = dataSheet.getRange(1, 1, 1, dataSheet.getLastColumn()).getValues()[0]
+                  .map(function (h) { return String(h).trim(); });
   }
 
   var colIndexMap = buildColumnIndexMap(headerRow);
@@ -551,7 +627,7 @@ function writeRow(rowData, role, coordinatorName) {
     }
 
     sheetRange.setValues([updatedRow]);
-    return { success: true, rowIndex: rowIndex, timestamp: now };
+    return { success: true, rowIndex: rowIndex, serverTime: nowMs };
 
   } else {
     // ── Append new row ───────────────────────────────────────
@@ -573,8 +649,41 @@ function writeRow(rowData, role, coordinatorName) {
 
     dataSheet.appendRow(newRow);
     var newRowIndex = dataSheet.getLastRow();
-    return { success: true, rowIndex: newRowIndex, timestamp: now };
+    return { success: true, rowIndex: newRowIndex, serverTime: nowMs };
   }
+}
+
+
+// ── Batch write ───────────────────────────────────────────────
+//
+// Writes an array of rows in a single Apps Script execution.
+// Each row goes through the full writeRow validation (lock checks,
+// JC uniqueness, coordinator ownership).
+//
+// Returns { success: true, results: [ { index, success, rowIndex, error } ] }
+// Execution continues even when individual rows fail — the caller
+// checks results for per-row failures.
+//
+// Batches are sent from the client in groups of 50 to stay within
+// the 30-second Apps Script execution limit.
+
+function writeBatch(rowsData, role, coordinatorName) {
+  if (!rowsData || !rowsData.length) {
+    return { success: false, error: 'No rows provided to writeBatch.' };
+  }
+
+  var results = [];
+  for (var i = 0; i < rowsData.length; i++) {
+    var result = writeRow(rowsData[i], role, coordinatorName);
+    results.push({
+      index:    i,
+      success:  result.success,
+      rowIndex: result.rowIndex || null,
+      error:    result.error   || null
+    });
+  }
+
+  return { success: true, results: results };
 }
 
 
