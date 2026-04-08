@@ -471,19 +471,19 @@ var Grid = (function () {
           distance:          true
         };
 
+        // Tracks rows with a JC conflict in this batch — ALL changes for a
+        // conflicting row must be skipped, not just the job_code change itself.
+        // Using a set here because `return` inside forEach only exits that one
+        // callback iteration; subsequent iterations for the same row would
+        // otherwise re-add the row to dirtyRows and still trigger a save.
+        var jcConflictRows = {};
+
         changes.forEach(function (change) {
           var rowIdx = change[0];
           var colKey = change[1]; // property name when columns use data:'key'
-          dirtyRows[rowIdx] = true;
 
-          // ── ID auto-generation ───────────────────────────────
-          if (colKey === 'job_code' && typeof ID !== 'undefined') {
-            var sourceRow = self.getSourceDataAtRow(rowIdx) || {};
-            var newId     = ID.tryGenerate(sourceRow, rowIdx);
-            if (newId) {
-              self.setDataAtRowProp(rowIdx, 'id', newId, 'id_autofill');
-            }
-          }
+          // ── Skip entire row if it had a JC conflict earlier in this batch ──
+          if (jcConflictRows[rowIdx]) return;
 
           // ── JC uniqueness check ──────────────────────────────
           // Fires whenever job_code changes (single edit or paste).
@@ -504,7 +504,8 @@ var Grid = (function () {
                 // Clear the value before saving
                 self.setDataAtRowProp(rowIdx, 'job_code', '', 'jc_revert');
                 _jcErrors[physRow] = true;
-                delete dirtyRows[rowIdx]; // remove from save queue entirely
+                jcConflictRows[rowIdx] = true; // block all further changes for this row
+                delete dirtyRows[rowIdx];      // ensure not in save queue
                 _hot.render();
                 var jcMsg = 'Job Code "' + newJC + '" is already assigned to site ' +
                   conflict.logicalSiteId + '.\nA Job Code can only belong to one site.';
@@ -516,6 +517,18 @@ var Grid = (function () {
                 _showModal('Duplicate Job Code', jcMsg);
                 return; // skip save + pricing for this change
               }
+            }
+          }
+
+          // Row is clean — mark dirty so it gets saved
+          dirtyRows[rowIdx] = true;
+
+          // ── ID auto-generation ───────────────────────────────
+          if (colKey === 'job_code' && typeof ID !== 'undefined') {
+            var sourceRow = self.getSourceDataAtRow(rowIdx) || {};
+            var newId     = ID.tryGenerate(sourceRow, rowIdx);
+            if (newId) {
+              self.setDataAtRowProp(rowIdx, 'id', newId, 'id_autofill');
             }
           }
 
@@ -646,9 +659,20 @@ var Grid = (function () {
       rowData.created_date = new Date().toISOString().slice(0, 10);
     }
 
-    Sheets.writeRow(rowData, function (result) {
+    // Assign a stable local ID to new rows so Offline.queueSave can
+    // deduplicate multiple offline edits to the same unsaved row.
+    // Stored on _data[rowIdx] so it persists across debounce calls.
+    if (!rowData._row_index) {
+      if (!originalRow) _data[rowIdx] = originalRow = {};
+      if (!originalRow._local_id) {
+        originalRow._local_id = 'n' + Date.now() + '_' + rowIdx;
+      }
+      rowData._local_id = originalRow._local_id;
+    }
+
+    Offline.queueSave(rowData, function (result) {
       if (!result.success) {
-        console.error('[grid.js] writeRow failed:', result.error);
+        console.error('[grid.js] queueSave failed:', result.error);
 
         // ── Lock detection from server rejection ──────────────────
         // If the server rejects because the row is locked, immediately
@@ -680,10 +704,34 @@ var Grid = (function () {
 
       // Update the in-memory _row_index for future edits
       if (!_data[rowIdx]) _data[rowIdx] = {};
-      _data[rowIdx]._row_index = result.rowIndex;
+      if (result.rowIndex) {
+        _data[rowIdx]._row_index = result.rowIndex;
+        delete _data[rowIdx]._local_id; // no longer needed once server-assigned
+      }
 
       console.log('[grid.js] Row saved — sheet row:', result.rowIndex);
     });
+  }
+
+  // ── Row index patch-up (called by offline.js after queue drain) ──
+
+  /**
+   * After draining a queued new-row save, offline.js calls this to
+   * patch the server-assigned _row_index into the in-memory _data array.
+   * Without this, the next user edit would attempt to create a duplicate row.
+   *
+   * localId  — the _local_id assigned by _saveRow at queue time
+   * rowIndex — the _row_index assigned by the server
+   */
+  function updateRowIndex(localId, rowIndex) {
+    for (var i = 0; i < _data.length; i++) {
+      if (_data[i] && _data[i]._local_id === localId) {
+        _data[i]._row_index = rowIndex;
+        delete _data[i]._local_id;
+        console.log('[grid.js] updateRowIndex — localId:', localId, '→ rowIndex:', rowIndex);
+        break;
+      }
+    }
   }
 
   // ── Pricing ───────────────────────────────────────────────
@@ -1220,9 +1268,10 @@ var Grid = (function () {
   // ── Expose ────────────────────────────────────────────────
 
   return {
-    init:           init,
-    loadData:       loadData,
-    applyDropdowns: applyDropdowns,
+    init:            init,
+    loadData:        loadData,
+    applyDropdowns:  applyDropdowns,
+    updateRowIndex:  updateRowIndex,
   };
 
 }());

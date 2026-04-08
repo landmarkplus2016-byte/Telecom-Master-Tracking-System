@@ -62,37 +62,68 @@
     // Show the main app screen
     _show('screen-app');
 
-    // Fetch price config + dropdowns first, then init grid, then load rows.
-    // Order matters: dropdowns and pricing must be ready before Grid.init
-    // so that column sources are wired correctly on first render.
-    _setLoadingStatus('Loading config\u2026');
-    Sheets.fetchConfig(function (configResult) {
-      if (configResult.success) {
-        Pricing.init(configResult);
-        Grid.applyDropdowns(configResult.dropdowns || {}, configResult.priceList || []);
-      } else {
-        // Non-fatal: both modules degrade gracefully with no config data
-        console.warn('[app.js] fetchConfig failed:', configResult.error, '— pricing + dropdowns disabled');
-        Pricing.init(null);
-        Grid.applyDropdowns({}, []);
-      }
+    // Open IndexedDB first — needed for offline startup fallback and
+    // for the sync queue to function. Callback is fast (< 50 ms typically).
+    Offline.init(function () {
 
-      // Init grid AFTER dropdowns are loaded so column sources are set
-      Grid.init(role, name);
+      // Fetch price config + dropdowns first, then init grid, then load rows.
+      // Order matters: dropdowns and pricing must be ready before Grid.init
+      // so that column sources are wired correctly on first render.
+      _setLoadingStatus('Loading config\u2026');
+      Sheets.fetchConfig(function (configResult) {
+        if (configResult.success) {
+          Pricing.init(configResult);
+          Grid.applyDropdowns(configResult.dropdowns || {}, configResult.priceList || []);
+        } else {
+          // Non-fatal: both modules degrade gracefully with no config data
+          console.warn('[app.js] fetchConfig failed:', configResult.error, '— pricing + dropdowns disabled');
+          Pricing.init(null);
+          Grid.applyDropdowns({}, []);
+        }
 
-      _setLoadingStatus('Loading data\u2026');
-      Sheets.fetchAllRows(function (result) {
-        _hide('screen-loading');
-        if (!result.success) {
-          console.error('[app.js] fetchAllRows failed:', result.error);
-          _showError('Could not load data: ' + result.error);
+        // Init grid AFTER dropdowns are loaded so column sources are set
+        Grid.init(role, name);
+
+        // ── Offline startup: skip network fetch, load from IDB ──────
+        if (!navigator.onLine) {
+          _setLoadingStatus('Loading from cache\u2026');
+          Offline.getAllRows(function (cachedRows) {
+            _hide('screen-loading');
+            if (cachedRows.length) {
+              console.log('[app.js] Offline — loaded', cachedRows.length, 'rows from cache');
+              Grid.loadData(cachedRows);
+            } else {
+              _showError('You are offline and no cached data is available. Connect to the internet and reload.');
+            }
+          });
           return;
         }
-        console.log('[app.js] fetchAllRows — rows received:', result.rows.length);
-        if (result.rows.length > 0) {
-          console.log('[app.js] first row sample:', JSON.stringify(result.rows[0]));
-        }
-        Grid.loadData(result.rows);
+
+        // ── Online: fetch from server ───────────────────────────────
+        _setLoadingStatus('Loading data\u2026');
+        Sheets.fetchAllRows(function (result) {
+          _hide('screen-loading');
+          if (!result.success) {
+            console.error('[app.js] fetchAllRows failed:', result.error);
+            // Try IDB cache as fallback before showing an error
+            Offline.getAllRows(function (cachedRows) {
+              if (cachedRows.length) {
+                console.warn('[app.js] fetchAllRows failed — showing', cachedRows.length, 'cached rows');
+                Grid.loadData(cachedRows);
+              } else {
+                _showError('Could not load data: ' + result.error);
+              }
+            });
+            return;
+          }
+          console.log('[app.js] fetchAllRows — rows received:', result.rows.length);
+          if (result.rows.length > 0) {
+            console.log('[app.js] first row sample:', JSON.stringify(result.rows[0]));
+          }
+          // Cache all rows in IndexedDB for offline use
+          Offline.storeRows(result.rows);
+          Grid.loadData(result.rows);
+        });
       });
     });
   }
