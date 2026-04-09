@@ -113,48 +113,39 @@
           return;
         }
 
-        var since = Offline.getLastSyncTime();
-
-        if (!since) {
-          // ── First ever load: full fetch ─────────────────────────
-          _setLoadingStatus('Loading data\u2026');
-          Sheets.fetchAllRows(function (result) {
-            _hide('screen-loading');
-            if (!result.success) {
-              console.error('[app.js] fetchAllRows failed:', result.error);
-              Offline.getAllRows(function (cachedRows) {
-                if (cachedRows.length) {
-                  console.warn('[app.js] fetchAllRows failed — showing', cachedRows.length, 'cached rows');
-                  Grid.loadData(cachedRows);
-                } else {
-                  _showError('Could not load data: ' + result.error);
-                }
-              });
-              return;
-            }
-            console.log('[app.js] first load — rows received:', result.rows.length);
-            // replaceAllRows clears the IDB store before writing so deleted-from-sheet
-            // rows never accumulate as phantoms in the local cache.
-            Offline.replaceAllRows(result.rows);
-            Offline.setLastSyncTime(result.serverTime);
-            Grid.loadData(result.rows);
-            _startBackgroundSync();
-          });
-
-        } else {
-          // ── Subsequent load: show cache immediately, sync delta in background ──
-          _setLoadingStatus('Loading from cache\u2026');
-          Offline.getAllRows(function (cachedRows) {
-            _hide('screen-loading');
-            Grid.loadData(cachedRows);
-            console.log('[app.js] cache loaded —', cachedRows.length, 'rows; fetching delta since', since);
-
-            // Fetch changes since last sync without blocking the UI
-            _runDeltaSync(since, function () {
-              _startBackgroundSync();
+        // ── Always do a full fetch on startup ──────────────────────
+        // Delta sync cannot detect rows deleted directly from Google Sheets,
+        // so the IDB cache can drift silently if rows are removed outside the app.
+        // Full fetch on every startup ensures the cache always mirrors the sheet.
+        // Delta sync is still used for background polling (every 30 s) where
+        // a missing row is less critical than on initial load.
+        //
+        // If the network call fails, fall back to IDB cache so the app still
+        // works for read/offline use.
+        _setLoadingStatus('Loading data\u2026');
+        Sheets.fetchAllRows(function (result) {
+          _hide('screen-loading');
+          if (!result.success) {
+            console.error('[app.js] fetchAllRows failed:', result.error);
+            Offline.getAllRows(function (cachedRows) {
+              if (cachedRows.length) {
+                console.warn('[app.js] fetchAllRows failed — showing', cachedRows.length, 'cached rows');
+                Grid.loadData(cachedRows);
+                _startBackgroundSync();
+              } else {
+                _showError('Could not load data: ' + result.error);
+              }
             });
-          });
-        }
+            return;
+          }
+          console.log('[app.js] startup fetch — rows received:', result.rows.length);
+          // replaceAllRows clears IDB before writing so deleted-from-sheet rows
+          // never survive as phantoms in the local cache.
+          Offline.replaceAllRows(result.rows);
+          Offline.setLastSyncTime(result.serverTime);
+          Grid.loadData(result.rows);
+          _startBackgroundSync();
+        });
       });
     });
   }
