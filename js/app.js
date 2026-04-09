@@ -133,7 +133,9 @@
               return;
             }
             console.log('[app.js] first load — rows received:', result.rows.length);
-            Offline.storeRows(result.rows);
+            // replaceAllRows clears the IDB store before writing so deleted-from-sheet
+            // rows never accumulate as phantoms in the local cache.
+            Offline.replaceAllRows(result.rows);
             Offline.setLastSyncTime(result.serverTime);
             Grid.loadData(result.rows);
             _startBackgroundSync();

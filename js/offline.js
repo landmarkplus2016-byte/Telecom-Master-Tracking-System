@@ -154,7 +154,11 @@ var Offline = (function () {
     }
   }
 
-  // ── Public: store rows after first successful fetch ───────
+  // ── Public: store rows (delta — adds/updates without clearing) ──
+  //
+  // Used for delta sync: merges incoming changed rows into the existing
+  // IDB rows store. Rows not in the incoming set are left untouched.
+  // Use replaceAllRows() when you have the full dataset.
 
   function storeRows(rows) {
     if (!_db || !rows || !rows.length) return;
@@ -169,6 +173,52 @@ var Offline = (function () {
       };
     } catch (e) {
       console.error('[offline.js] storeRows failed:', e);
+    }
+  }
+
+  // ── Public: clear and replace all rows (full fetch) ──────
+  //
+  // Used after a full fetch from the server. Clears the entire rows
+  // store first so deleted-from-sheet rows don't accumulate as phantoms.
+  // Rows that exist in the store but not in the new dataset are removed.
+  //
+  // callback() — called when the write is complete (optional)
+
+  function replaceAllRows(rows, cb) {
+    if (!_db) { if (cb) cb(); return; }
+    try {
+      // Step 1: clear the entire rows store
+      var clearTx    = _db.transaction([STORE_ROWS], 'readwrite');
+      var clearStore = clearTx.objectStore(STORE_ROWS);
+      var clearReq   = clearStore.clear();
+
+      clearReq.onsuccess = function () {
+        if (!rows || !rows.length) { if (cb) cb(); return; }
+        // Step 2: write all new rows
+        try {
+          var putTx    = _db.transaction([STORE_ROWS], 'readwrite');
+          var putStore = putTx.objectStore(STORE_ROWS);
+          rows.forEach(function (row) {
+            if (row._row_index) putStore.put(row);
+          });
+          putTx.oncomplete = function () { if (cb) cb(); };
+          putTx.onerror   = function (e) {
+            console.error('[offline.js] replaceAllRows put failed:', e.target.error);
+            if (cb) cb();
+          };
+        } catch (e2) {
+          console.error('[offline.js] replaceAllRows put error:', e2);
+          if (cb) cb();
+        }
+      };
+
+      clearReq.onerror = function (e) {
+        console.error('[offline.js] replaceAllRows clear failed:', e.target.error);
+        if (cb) cb();
+      };
+    } catch (e) {
+      console.error('[offline.js] replaceAllRows failed:', e);
+      if (cb) cb();
     }
   }
 
@@ -1348,6 +1398,7 @@ var Offline = (function () {
   return {
     init:                 init,
     storeRows:            storeRows,
+    replaceAllRows:       replaceAllRows,
     getAllRows:            getAllRows,
     queueSave:            queueSave,
     getLastSyncTime:      getLastSyncTime,

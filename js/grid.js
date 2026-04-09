@@ -324,55 +324,33 @@ var Grid = (function () {
   }
 
   // ── Manual data refresh ──────────────────────────────────
-  // Delta-first: fetches only rows changed since the last sync.
-  // Falls back to a full fetch if no sync timestamp exists yet.
+  // Always does a full fetch from the server.
+  // Manual Refresh = "give me the canonical truth" — it clears IDB first
+  // so any rows deleted directly in Google Sheets are removed locally too.
+  // Background/automatic sync uses delta sync (app.js _runDeltaSync).
 
   function _refreshData(btn) {
     if (btn) {
-      btn.disabled  = true;
+      btn.disabled    = true;
       btn.textContent = 'Syncing\u2026';
     }
 
-    var since = (typeof Offline !== 'undefined') ? Offline.getLastSyncTime() : 0;
-
-    if (since) {
-      // ── Delta sync path ────────────────────────────────────
-      Sheets.fetchDelta(since, function (result) {
-        if (btn) { btn.disabled = false; btn.innerHTML = '&#8635; Refresh'; }
-        if (!result.success) {
-          console.error('[grid.js] delta refresh failed:', result.error);
-          _showSaveError('Sync failed: ' + result.error);
-          return;
-        }
-        if (!result.rows.length) {
-          console.log('[grid.js] delta refresh — no changes');
-          return;
-        }
-        // Filter out rows with pending local edits — they must not be overwritten
-        Offline.getPendingRowIndexes(function (pendingMap) {
-          var toApply = result.rows.filter(function (r) {
-            return !pendingMap[String(r._row_index)];
-          });
-          Offline.storeRows(toApply);
-          if (toApply.length) applyDelta(toApply);
-          Offline.setLastSyncTime(result.serverTime);
-          console.log('[grid.js] delta refresh — applied', toApply.length, 'rows');
-        });
-      });
-    } else {
-      // ── First-load fallback (no sync timestamp yet) ────────
-      Sheets.fetchAllRows(function (result) {
-        if (btn) { btn.disabled = false; btn.innerHTML = '&#8635; Refresh'; }
-        if (!result.success) {
-          console.error('[grid.js] refresh failed:', result.error);
-          _showSaveError('Refresh failed: ' + result.error);
-          return;
-        }
-        Offline.storeRows(result.rows);
+    Sheets.fetchAllRows(function (result) {
+      if (btn) { btn.disabled = false; btn.innerHTML = '&#8635; Refresh'; }
+      if (!result.success) {
+        console.error('[grid.js] refresh failed:', result.error);
+        _showSaveError('Refresh failed: ' + result.error);
+        return;
+      }
+      console.log('[grid.js] refresh — rows received:', result.rows.length);
+      // replaceAllRows clears IDB before writing — removes phantom rows
+      // that were deleted from Google Sheets outside the app.
+      if (typeof Offline !== 'undefined') {
+        Offline.replaceAllRows(result.rows);
         Offline.setLastSyncTime(result.serverTime);
-        loadData(result.rows);
-      });
-    }
+      }
+      loadData(result.rows);
+    });
   }
 
   // ── Apply a delta of changed rows without a full reload ───
