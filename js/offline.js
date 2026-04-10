@@ -58,6 +58,37 @@ var Offline = (function () {
   // "✓ All synced" disappears after this delay (ms)
   var SYNCED_CLEAR_MS = 3000;
 
+  // ── Drain lock (multi-tab safety) ─────────────────────────
+  //
+  // When multiple tabs are open they each see the same IDB queue.
+  // Without a lock, all tabs drain simultaneously → duplicate writes
+  // to Google Sheet.
+  //
+  // Strategy: use localStorage as a cheap mutex. Before draining, check
+  // whether another tab set the lock within the last DRAIN_LOCK_TTL ms.
+  // If so, skip — that tab owns the drain. Release the lock when done.
+  //
+  // TTL is set conservatively (30 s) so a crashed tab can't permanently
+  // block drains. Normal drains complete well under 30 s.
+
+  var DRAIN_LOCK_KEY = 'telecom_drain_lock';
+  var DRAIN_LOCK_TTL = 30 * 1000; // 30 seconds
+
+  function _acquireDrainLock() {
+    var now      = Date.now();
+    var existing = Number(localStorage.getItem(DRAIN_LOCK_KEY) || 0);
+    if (existing && (now - existing) < DRAIN_LOCK_TTL) {
+      // Another tab holds the lock and it hasn't expired
+      return false;
+    }
+    localStorage.setItem(DRAIN_LOCK_KEY, String(now));
+    return true;
+  }
+
+  function _releaseDrainLock() {
+    localStorage.removeItem(DRAIN_LOCK_KEY);
+  }
+
   // ── Internal state ────────────────────────────────────────
 
   var _db             = null;
@@ -92,6 +123,18 @@ var Offline = (function () {
 
     req.onsuccess = function (e) {
       _db = e.target.result;
+
+      // If another tab upgrades the DB to a newer version, this tab's
+      // connection receives a versionchange event. Close gracefully so
+      // the upgrade can proceed — otherwise the upgrade request blocks
+      // indefinitely and every subsequent IDB call throws InvalidStateError.
+      _db.onversionchange = function () {
+        _db.close();
+        _db = null;
+        console.warn('[offline.js] IDB version changed — connection closed. ' +
+          'Reload this tab to reconnect.');
+      };
+
       cb(_db);
     };
 
@@ -438,6 +481,13 @@ var Offline = (function () {
   function _processQueue() {
     if (!_db || _isSyncing || !_isOnline) return;
 
+    // Prevent multiple open tabs from draining simultaneously.
+    // If another tab holds the lock (set within the last 30 s), skip.
+    if (!_acquireDrainLock()) {
+      console.log('[offline.js] Drain lock held by another tab — skipping this tick');
+      return;
+    }
+
     try {
       var tx  = _db.transaction([STORE_QUEUE], 'readonly');
       var req = tx.objectStore(STORE_QUEUE).getAll();
@@ -447,6 +497,7 @@ var Offline = (function () {
         if (!entries.length) {
           _pendingCount = 0;
           _updateIndicator();
+          _releaseDrainLock();
           return;
         }
 
@@ -459,9 +510,11 @@ var Offline = (function () {
 
       req.onerror = function (e) {
         console.error('[offline.js] _processQueue getAll failed:', e.target.error);
+        _releaseDrainLock();
       };
     } catch (e) {
       console.error('[offline.js] _processQueue failed:', e);
+      _releaseDrainLock();
     }
   }
 
@@ -469,6 +522,7 @@ var Offline = (function () {
     if (!_isOnline) {
       _isSyncing = false;
       _updateIndicator();
+      _releaseDrainLock();
       return;
     }
 
@@ -476,6 +530,7 @@ var Offline = (function () {
       _isSyncing    = false;
       _pendingCount = 0;
       _updateIndicator();
+      _releaseDrainLock();
       console.log('[offline.js] Queue drained');
       return;
     }
@@ -542,6 +597,7 @@ var Offline = (function () {
         if (!_isOnline || attempts >= MAX_ATTEMPTS) {
           _isSyncing = false;
           _updateIndicator();
+          _releaseDrainLock();
           console.warn('[offline.js] Drain stopped after', attempts,
             'attempts on', entry._queue_key, '—', result.error);
           return;
