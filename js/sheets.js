@@ -538,7 +538,10 @@ var Sheets = (function () {
       if (!data) return; // aborted case
 
       if (!data.success) {
-        callback({ success: false, error: data.error || 'An unexpected error occurred.' });
+        // Pass the full server response through so conflict data
+        // (conflict:true, conflictSheetRow, serverRow) is preserved.
+        // Add a fallback error message if the server didn't include one.
+        callback(Object.assign({ error: 'An unexpected error occurred.' }, data));
         return;
       }
 
