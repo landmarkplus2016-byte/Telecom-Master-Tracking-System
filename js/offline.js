@@ -251,6 +251,25 @@ var Offline = (function () {
 
   // ── Public: pending row index lookup ─────────────────────
 
+  // ── Public: get all queue entries ────────────────────────
+  //
+  // Returns every entry in the sync_queue store.
+  // Used by the grid Refresh and startup paths to re-inject pending
+  // new rows (no _row_index) into the display after a server fetch,
+  // so they don't vanish from the UI while waiting to sync.
+
+  function getPendingQueue(cb) {
+    if (!_db) { cb([]); return; }
+    try {
+      var tx  = _db.transaction([STORE_QUEUE], 'readonly');
+      var req = tx.objectStore(STORE_QUEUE).getAll();
+      req.onsuccess = function (e) { cb(e.target.result || []); };
+      req.onerror   = function ()  { cb([]); };
+    } catch (e) {
+      cb([]);
+    }
+  }
+
   function getPendingRowIndexes(cb) {
     if (!_db) { cb({}); return; }
     try {
@@ -467,6 +486,11 @@ var Offline = (function () {
     // while this user was offline → conflict.
     var rowDataWithMeta = _shallowCopy(entry.rowData);
     rowDataWithMeta._queued_at = entry.queuedAt;
+
+    console.log('[offline.js] Draining entry', idx + 1, '/', entries.length,
+      '— key:', entry._queue_key,
+      '| rowIndex:', entry.rowData._row_index || '(new)',
+      '| localId:', entry.rowData._local_id || '-');
 
     Sheets.writeRow(rowDataWithMeta, function (result) {
       if (result.success) {
@@ -1403,6 +1427,7 @@ var Offline = (function () {
     queueSave:            queueSave,
     getLastSyncTime:      getLastSyncTime,
     setLastSyncTime:      setLastSyncTime,
+    getPendingQueue:      getPendingQueue,
     getPendingRowIndexes: getPendingRowIndexes,
     getConflicts:         getConflicts,
     resolveConflict:      resolveConflict

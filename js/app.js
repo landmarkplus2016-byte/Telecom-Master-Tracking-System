@@ -143,8 +143,21 @@
           // never survive as phantoms in the local cache.
           Offline.replaceAllRows(result.rows);
           Offline.setLastSyncTime(result.serverTime);
-          Grid.loadData(result.rows);
-          _startBackgroundSync();
+
+          // Re-inject any pending new rows from the queue so they stay
+          // visible in the grid while waiting for the drain to complete.
+          // This handles the case where the user was offline at previous
+          // startup, added rows, then reloaded while online.
+          Offline.getPendingQueue(function (queueEntries) {
+            var pendingNew = queueEntries
+              .filter(function (e) { return e.rowData && !e.rowData._row_index; })
+              .map(function (e) { return e.rowData; });
+            if (pendingNew.length) {
+              console.log('[app.js] startup — re-injecting', pendingNew.length, 'pending new row(s) from queue');
+            }
+            Grid.loadData(result.rows.concat(pendingNew));
+            _startBackgroundSync();
+          });
         });
       });
     });

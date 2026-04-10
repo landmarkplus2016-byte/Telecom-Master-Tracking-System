@@ -343,13 +343,31 @@ var Grid = (function () {
         return;
       }
       console.log('[grid.js] refresh — rows received:', result.rows.length);
-      // replaceAllRows clears IDB before writing — removes phantom rows
-      // that were deleted from Google Sheets outside the app.
-      if (typeof Offline !== 'undefined') {
-        Offline.replaceAllRows(result.rows);
-        Offline.setLastSyncTime(result.serverTime);
+
+      if (typeof Offline === 'undefined') {
+        loadData(result.rows);
+        return;
       }
-      loadData(result.rows);
+
+      Offline.replaceAllRows(result.rows);
+      Offline.setLastSyncTime(result.serverTime);
+
+      // Re-inject pending new rows so they don't vanish from the grid.
+      // New rows (no _row_index) live in the sync queue and haven't reached
+      // the server yet — they must stay visible until the drain completes.
+      // Updated rows (have _row_index) are already on the server so the
+      // fetched copy is authoritative; we skip them here.
+      Offline.getPendingQueue(function (queueEntries) {
+        var pendingNew = queueEntries
+          .filter(function (e) { return e.rowData && !e.rowData._row_index; })
+          .map(function (e) { return e.rowData; });
+
+        if (pendingNew.length) {
+          console.log('[grid.js] refresh — re-injecting', pendingNew.length, 'pending new row(s) from queue');
+        }
+
+        loadData(result.rows.concat(pendingNew));
+      });
     });
   }
 
