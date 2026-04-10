@@ -125,8 +125,15 @@ var Grid = (function () {
    * rows: array of row objects keyed by column key.
    */
   function loadData(rows) {
-    console.log('[grid.js] loadData() — rows:', rows.length);
-    _data = rows || [];
+    // Filter out rows with no meaningful data (e.g. sheet rows that contain
+    // only last_modified/created_date timestamps but no actual field values).
+    // These can accumulate in IDB from previous fetches before the server-side
+    // fix, and should never appear in the grid.
+    var filtered = (rows || []).filter(function (r) {
+      return r && (r.id || r.job_code || r.coordinator_name || r.task_name);
+    });
+    console.log('[grid.js] loadData() — rows:', filtered.length, '(filtered from', (rows || []).length + ')');
+    _data = filtered;
 
     // Build locked-row index for coordinator role.
     // Keyed by _data array index (= HOT physical row index) so lock checks

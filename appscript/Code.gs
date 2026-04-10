@@ -370,15 +370,20 @@ function getRows(role, coordinatorName, since) {
   for (var i = 1; i < values.length; i++) {
     var rawRow = values[i];
 
-    // Skip entirely empty rows
-    var isEmpty = true;
-    for (var c = 0; c < rawRow.length; c++) {
-      if (rawRow[c] !== '' && rawRow[c] !== null && rawRow[c] !== undefined) {
-        isEmpty = false;
+    // Skip rows with no meaningful tracking data.
+    // The simple all-cells-empty check misses rows that contain only
+    // system metadata (last_modified / created_date) but no actual fields.
+    var hasMeaningfulData = false;
+    for (var mc = 0; mc < ALL_COLUMNS.length; mc++) {
+      var mck = ALL_COLUMNS[mc];
+      if (mck === 'last_modified' || mck === 'created_date' || mck === 'row_num') continue;
+      var mci = colIndexMap[mck];
+      if (mci !== undefined && rawRow[mci] !== '' && rawRow[mci] !== null && rawRow[mci] !== undefined) {
+        hasMeaningfulData = true;
         break;
       }
     }
-    if (isEmpty) continue;
+    if (!hasMeaningfulData) continue;
 
     // Build a keyed object from all known columns
     var rowObj = {};
