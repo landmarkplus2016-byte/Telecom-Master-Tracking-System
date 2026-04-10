@@ -123,6 +123,17 @@ var Offline = (function () {
         req.onsuccess = function (e) {
           _pendingCount = e.target.result || 0;
           _updateIndicator();
+
+          // If we loaded while already online with queued items, drain now.
+          // The 'online' event only fires on the offline→online transition —
+          // it does NOT fire on page load when the device is already online.
+          // Without this, queued offline edits sit forever after a reload.
+          if (_pendingCount > 0 && navigator.onLine) {
+            console.log('[offline.js] Init — found', _pendingCount,
+              'queued item(s) while online; draining now');
+            setTimeout(_processQueue, 500);
+          }
+
           _loadConflictCount(cb); // chain into conflict count load
         };
         req.onerror = function () { _loadConflictCount(cb); };
@@ -187,37 +198,28 @@ var Offline = (function () {
   function replaceAllRows(rows, cb) {
     if (!_db) { if (cb) cb(); return; }
     try {
-      // Step 1: clear the entire rows store
-      var clearTx    = _db.transaction([STORE_ROWS], 'readwrite');
-      var clearStore = clearTx.objectStore(STORE_ROWS);
-      var clearReq   = clearStore.clear();
+      // Clear and re-populate in ONE transaction.
+      // Two-transaction approach (clear tx1, put tx2 in onsuccess) is wrong:
+      // tx1 commits and closes the connection before tx2 opens, causing
+      // InvalidStateError: The database connection is closing.
+      var tx    = _db.transaction([STORE_ROWS], 'readwrite');
+      var store = tx.objectStore(STORE_ROWS);
 
-      clearReq.onsuccess = function () {
-        if (!rows || !rows.length) { if (cb) cb(); return; }
-        // Step 2: write all new rows
-        try {
-          var putTx    = _db.transaction([STORE_ROWS], 'readwrite');
-          var putStore = putTx.objectStore(STORE_ROWS);
-          rows.forEach(function (row) {
-            if (row._row_index) putStore.put(row);
-          });
-          putTx.oncomplete = function () { if (cb) cb(); };
-          putTx.onerror   = function (e) {
-            console.error('[offline.js] replaceAllRows put failed:', e.target.error);
-            if (cb) cb();
-          };
-        } catch (e2) {
-          console.error('[offline.js] replaceAllRows put error:', e2);
-          if (cb) cb();
-        }
-      };
+      store.clear(); // clear request — no onsuccess needed, runs in same tx
 
-      clearReq.onerror = function (e) {
-        console.error('[offline.js] replaceAllRows clear failed:', e.target.error);
+      if (rows && rows.length) {
+        rows.forEach(function (row) {
+          if (row._row_index) store.put(row);
+        });
+      }
+
+      tx.oncomplete = function () { if (cb) cb(); };
+      tx.onerror = function (e) {
+        console.error('[offline.js] replaceAllRows failed:', e.target.error);
         if (cb) cb();
       };
     } catch (e) {
-      console.error('[offline.js] replaceAllRows failed:', e);
+      console.error('[offline.js] replaceAllRows error:', e);
       if (cb) cb();
     }
   }
