@@ -389,6 +389,12 @@ var Grid = (function () {
   function applyDelta(rows) {
     if (!rows || !rows.length || !_hot) return;
 
+    // Same meaningful-data guard as loadData — drop rows with only metadata
+    rows = rows.filter(function (r) {
+      return r && (r.id || r.job_code || r.coordinator_name || r.task_name);
+    });
+    if (!rows.length) return;
+
     // Build a fast lookup: _row_index → _data array position
     var idxMap = {};
     for (var i = 0; i < _data.length; i++) {
