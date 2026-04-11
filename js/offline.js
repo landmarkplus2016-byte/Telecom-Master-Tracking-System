@@ -187,6 +187,18 @@ var Offline = (function () {
 
     window.addEventListener('online',  _onOnline);
     window.addEventListener('offline', _onOffline);
+
+    // When another tab finishes draining and releases the lock, the
+    // localStorage key is removed → a 'storage' event fires in every
+    // other open tab.  If this tab still has pending items, start its
+    // own drain now rather than waiting for the next online/offline cycle.
+    window.addEventListener('storage', function (e) {
+      if (e.key !== DRAIN_LOCK_KEY || e.newValue !== null) return;
+      if (_pendingCount > 0 && _isOnline && !_isSyncing) {
+        console.log('[offline.js] Drain lock released by another tab — starting drain');
+        setTimeout(_processQueue, 300);
+      }
+    });
   }
 
   function _loadConflictCount(cb) {
