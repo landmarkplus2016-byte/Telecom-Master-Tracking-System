@@ -639,8 +639,9 @@ var Reconcile = (function () {
         var siteIdCol  = _findCol(headerRow, ['site id', 'site_id'], 7);  // default col H = 7
         var lineItemCol= _findCol(headerRow, ['item description', 'description', 'item desc', 'catalogue'], 13); // default col N = 13
 
-        // Find submission feedback columns
-        // Scan all rows from 0 to headerIdx+2 for "Nth Submission FeedBack"
+        // Find submission feedback columns.
+        // _findSubmissionCol scans the header area BOTTOM-UP so the label row
+        // nearest the data (not the summary banner at the top) is used.
         var submColIdx = _findSubmissionCol(raw, submNum, 0, headerIdx + 2);
         if (submColIdx < 0) {
           callback(
@@ -650,9 +651,12 @@ var Reconcile = (function () {
           return;
         }
 
-        // Each submission block: submColIdx=Status, +1=Amount, +2=Quantity
-        var statusCol = submColIdx;
-        var qtyCol    = submColIdx + 2;
+        // The "Nth Submission FeedBack" label may be in a merged/summary cell that
+        // sits 1–2 columns to the LEFT of where FAC/REJ values actually appear in
+        // data rows.  _resolveStatusCol checks data rows near submColIdx to find
+        // the real status column, then qty = statusCol + 2 (Status | Amount | Qty).
+        var statusCol = _resolveStatusCol(raw, headerIdx, submColIdx);
+        var qtyCol    = statusCol + 2;
 
         // Parse data rows
         var rows = [];
@@ -728,17 +732,19 @@ var Reconcile = (function () {
     return defaultCol;
   }
 
-  // Scan rows[startRow..endRow] for "Nth Submission FeedBack" (or similar)
-  // Returns the column index of that header cell, or -1 if not found.
+  // Scan rows[startRow..endRow] for "Nth Submission FeedBack" (or similar).
+  // Scans BOTTOM-UP so the label row nearest the data area is matched first,
+  // avoiding the summary/total banner rows near the top of the file.
+  // Returns the column index of the matching cell, or -1 if not found.
   function _findSubmissionCol(raw, submNum, startRow, endRow) {
     var ordinal = (ORDINALS[submNum] || (submNum + 'th')).toLowerCase(); // "3rd"
     endRow = Math.min(endRow, raw.length - 1);
 
-    for (var i = startRow; i <= endRow; i++) {
+    // Primary: bottom-up ordinal match
+    for (var i = endRow; i >= startRow; i--) {
       var row = raw[i] || [];
       for (var c = 0; c < row.length; c++) {
         var cell = String(row[c] || '').trim().toLowerCase();
-        // Match "3rd submission feedback", "3rd submission", "3rd receiving", etc.
         if (cell.indexOf(ordinal) === 0 &&
             (cell.includes('feedback') || cell.includes('submission') ||
              cell.includes('receiving') || cell.includes('sub'))) {
@@ -747,21 +753,62 @@ var Reconcile = (function () {
       }
     }
 
-    // Numeric fallback: find the Nth occurrence of any "submission feedback" header
-    var found = 0;
+    // Fallback: find the row with the MOST submission-related headers (the main
+    // submission header row), then return the Nth column in that row left-to-right.
+    var bestRow = -1, bestCount = 0;
     for (var i = startRow; i <= endRow; i++) {
-      var row = raw[i] || [];
+      var count = 0;
+      var row   = raw[i] || [];
       for (var c = 0; c < row.length; c++) {
         var cell = String(row[c] || '').trim().toLowerCase();
-        if ((cell.includes('submission') || cell.includes('receiving')) &&
-            (cell.includes('feedback') || cell.includes('sub'))) {
-          found++;
-          if (found === submNum) return c;
+        if (cell && (cell.includes('submission') || cell.includes('feedback') ||
+                     cell.includes('receiving'))) count++;
+      }
+      if (count > bestCount) { bestCount = count; bestRow = i; }
+    }
+
+    if (bestRow >= 0) {
+      var row = raw[bestRow] || [];
+      var nth = 0;
+      for (var c = 0; c < row.length; c++) {
+        var cell = String(row[c] || '').trim().toLowerCase();
+        if (cell && (cell.includes('submission') || cell.includes('feedback') ||
+                     cell.includes('receiving'))) {
+          nth++;
+          if (nth === submNum) return c;
         }
       }
     }
 
     return -1;
+  }
+
+  // After finding the candidate column from headers, verify it against actual data rows.
+  // The "Nth Submission FeedBack" label is sometimes in a merged/summary cell that sits
+  // 1–2 columns to the LEFT of where FAC/REJ values actually appear in data rows.
+  // Scans candidateCol to candidateCol+3 and returns the first column that has
+  // recognisable status values (FAC, PAC, TOC, REJ, or blank) in data rows.
+  function _resolveStatusCol(raw, headerIdx, candidateCol) {
+    var statusPattern = /^(fac|pac|toc|rej|reject|)$/i;
+
+    for (var offset = 0; offset <= 3; offset++) {
+      var col = candidateCol + offset;
+      var hasStatus = false;
+
+      for (var i = headerIdx + 1; i < Math.min(raw.length, headerIdx + 20); i++) {
+        var row = raw[i] || [];
+        var val = String(row[col] || '').trim();
+        // Must have at least one non-blank status value in this column
+        if (val && statusPattern.test(val)) {
+          hasStatus = true;
+          break;
+        }
+      }
+
+      if (hasStatus) return col;
+    }
+
+    return candidateCol; // fallback — keep original if nothing found
   }
 
   // ══════════════════════════════════════════════════════════
