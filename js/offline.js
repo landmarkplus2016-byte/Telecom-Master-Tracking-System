@@ -491,6 +491,11 @@ var Offline = (function () {
   // ── Internal: drain the sync queue on reconnect ───────────
 
   function _processQueue() {
+    // Use navigator.onLine as ground truth — _isOnline can lag behind
+    // when DevTools offline toggle doesn't reliably fire the 'online' event.
+    if (navigator.onLine && !_isOnline) {
+      _isOnline = true;
+    }
     if (!_db || _isSyncing || !_isOnline) return;
 
     // Prevent multiple open tabs from draining simultaneously.
@@ -606,12 +611,27 @@ var Offline = (function () {
         // ── Regular failure ──────────────────────────────────
         var attempts = (entry.attempts || 0) + 1;
 
-        if (!_isOnline || attempts >= MAX_ATTEMPTS) {
+        if (!_isOnline && !navigator.onLine) {
+          // Genuinely offline — stop and wait for the 'online' event
           _isSyncing = false;
           _updateIndicator();
           _releaseDrainLock();
+          console.warn('[offline.js] Drain paused — device went offline');
+          return;
+        }
+
+        if (attempts >= MAX_ATTEMPTS) {
+          // Server errors (cold-start timeout, Apps Script quota, etc.).
+          // Release the lock and schedule a full retry in 30 s rather than
+          // giving up permanently — the server may just be warming up.
+          _isSyncing = false;
+          _releaseDrainLock();
           console.warn('[offline.js] Drain stopped after', attempts,
-            'attempts on', entry._queue_key, '—', result.error);
+            'attempts on', entry._queue_key, '—', result.error,
+            '— will retry in 30 s');
+          setTimeout(function () {
+            if (_isOnline || navigator.onLine) _processQueue();
+          }, 30 * 1000);
           return;
         }
 
