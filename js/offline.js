@@ -822,6 +822,16 @@ var Offline = (function () {
     }
   }
 
+  // Called by sheets.js when the presence heartbeat returns a conflictCount
+  // for the manager. Updates the indicator without touching IDB, so the
+  // manager's tab (which may be in incognito with separate storage) reflects
+  // the correct conflict count from the server.
+  function setManagerConflictCount(n) {
+    if (n === _conflictCount) return;
+    _conflictCount = n;
+    _updateConflictIndicator();
+  }
+
   // ── Conflict panel (manager only) ─────────────────────────
   //
   // Side-by-side view of each conflict:
@@ -832,12 +842,43 @@ var Offline = (function () {
   function _openConflictPanel() {
     if (document.getElementById('conflict-panel-overlay')) return;
 
-    getConflicts(function (conflicts) {
-      _renderConflictPanel(conflicts);
-    });
+    var role = (sessionStorage.getItem('app_role') || '').trim().toLowerCase();
+
+    if (role === 'manager') {
+      // Manager fetches conflict data from the server (their IDB is separate
+      // from the coordinator's tab that detected the conflict).
+      _renderConflictPanel([], true); // show loading state immediately
+      Sheets.fetchConflicts(function (result) {
+        if (!result.success) {
+          var body = document.getElementById('cp-body');
+          if (body) body.innerHTML =
+            '<div class="cp-empty">Error loading conflicts: ' +
+            _escHtml(result.error || 'Unknown error') + '</div>';
+          return;
+        }
+        var conflicts = (result.conflicts || []).map(function (c) {
+          // Normalise shape to match IDB conflict objects the panel expects
+          return {
+            id:               c.conflictSheetRow, // used as key for resolve btn
+            conflictSheetRow: c.conflictSheetRow,
+            liveRowIndex:     c.liveRowIndex,
+            offlineData:      c.offlineData  || {},
+            serverData:       c.serverData   || {},
+            queuedAt:         c.offlineWhen,
+            detectedAt:       c.detectedAt,
+            _fromServer:      true
+          };
+        });
+        _renderConflictPanel(conflicts, false);
+      });
+    } else {
+      getConflicts(function (conflicts) {
+        _renderConflictPanel(conflicts, false);
+      });
+    }
   }
 
-  function _renderConflictPanel(conflicts) {
+  function _renderConflictPanel(conflicts, loading) {
     // Remove any stale overlay
     var old = document.getElementById('conflict-panel-overlay');
     if (old) old.parentNode.removeChild(old);
@@ -862,7 +903,9 @@ var Offline = (function () {
     body.id = 'cp-body';
     body.className = 'cp-body';
 
-    if (!conflicts.length) {
+    if (loading) {
+      body.innerHTML = '<div class="cp-empty">Loading conflicts\u2026</div>';
+    } else if (!conflicts.length) {
       body.innerHTML =
         '<div class="cp-empty">No conflicts pending. All caught up.</div>';
     } else {
@@ -886,6 +929,12 @@ var Offline = (function () {
     var card = document.createElement('div');
     card.className = 'cp-card';
     card.setAttribute('data-conflict-id', String(conflict.id));
+    // Server-fetched conflicts carry routing metadata for the resolve path
+    if (conflict._fromServer) {
+      card.setAttribute('data-from-server', 'true');
+      card.setAttribute('data-conflict-sheet-row', String(conflict.conflictSheetRow || ''));
+      card.setAttribute('data-live-row-index',     String(conflict.liveRowIndex     || ''));
+    }
 
     var offline  = conflict.offlineData  || {};
     var server   = conflict.serverData   || {};
@@ -1077,42 +1126,55 @@ var Offline = (function () {
   }
 
   function _resolveFromPanel(conflictId, keepVersion, mergedData, card) {
-    // Show spinner on the card while waiting
-    var actions = card.querySelector('.cp-actions');
+    var actions   = card.querySelector('.cp-actions');
     var mergeForm = card.querySelector('.cp-merge-form');
-    if (actions) actions.innerHTML = '<span class="cp-resolving">Resolving\u2026</span>';
+    if (actions)   actions.innerHTML = '<span class="cp-resolving">Resolving\u2026</span>';
     if (mergeForm) mergeForm.setAttribute('hidden', '');
 
-    resolveConflict(conflictId, keepVersion, mergedData, function (result) {
+    var fromServer       = card.getAttribute('data-from-server') === 'true';
+    var conflictSheetRow = Number(card.getAttribute('data-conflict-sheet-row')) || null;
+    var liveRowIndex     = Number(card.getAttribute('data-live-row-index'))     || null;
+
+    function _onResolved(result) {
       if (result.success) {
-        // Fade out and remove the card
-        card.style.opacity = '0.4';
+        _conflictCount = Math.max(0, _conflictCount - 1);
+        _updateConflictIndicator();
+        card.style.opacity    = '0.4';
         card.style.transition = 'opacity 0.3s';
         setTimeout(function () {
           if (card.parentNode) card.parentNode.removeChild(card);
-
-          // If no more conflicts, show empty state
           var body = document.getElementById('cp-body');
           if (body && !body.querySelector('.cp-card')) {
             body.innerHTML =
               '<div class="cp-empty">All conflicts resolved. No more pending.</div>';
           }
-
-          // Close panel if empty
-          if (_conflictCount === 0) {
-            setTimeout(_closeConflictPanel, 600);
-          }
+          if (_conflictCount === 0) setTimeout(_closeConflictPanel, 600);
         }, 300);
       } else {
         if (actions) {
           actions.innerHTML = '';
           var errEl = document.createElement('span');
-          errEl.className = 'cp-resolve-error';
+          errEl.className  = 'cp-resolve-error';
           errEl.textContent = 'Error: ' + (result.error || 'Unknown error');
           actions.appendChild(errEl);
         }
       }
-    });
+    }
+
+    if (fromServer) {
+      // Manager tab fetched conflicts from the server — resolve directly
+      // via Sheets without touching local IDB (which is empty in this tab).
+      Sheets.resolveConflict(
+        conflictSheetRow,
+        liveRowIndex,
+        keepVersion,
+        keepVersion === 'online' ? null : mergedData,
+        _onResolved
+      );
+    } else {
+      // Coordinator tab: conflict is in local IDB — use the full IDB path
+      resolveConflict(conflictId, keepVersion, mergedData, _onResolved);
+    }
   }
 
   function _closeConflictPanel() {
@@ -1519,8 +1581,9 @@ var Offline = (function () {
     setLastSyncTime:      setLastSyncTime,
     getPendingQueue:      getPendingQueue,
     getPendingRowIndexes: getPendingRowIndexes,
-    getConflicts:         getConflicts,
-    resolveConflict:      resolveConflict
+    getConflicts:            getConflicts,
+    resolveConflict:         resolveConflict,
+    setManagerConflictCount: setManagerConflictCount
   };
 
 }());

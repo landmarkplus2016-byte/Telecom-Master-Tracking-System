@@ -231,6 +231,14 @@ var Sheets = (function () {
    * callback({ success })
    * callback({ success:false, error })
    */
+  function fetchConflicts(callback) {
+    _post(
+      { action: 'getConflicts' },
+      { isColdStartCandidate: false, label: 'Loading conflicts' },
+      callback
+    );
+  }
+
   function resolveConflict(conflictSheetRow, liveRowIndex, keepVersion, mergedData, callback) {
     _post(
       {
@@ -296,6 +304,13 @@ var Sheets = (function () {
         var role = sessionStorage.getItem('app_role') || '';
         if (role === 'manager' && result.changes && result.changes.length) {
           _handleChanges(result.changes);
+        }
+        // Notify offline.js of conflict count so the manager's tab
+        // shows the conflict button even in a separate browser/incognito.
+        if (role === 'manager' && typeof result.conflictCount === 'number') {
+          if (typeof Offline !== 'undefined' && Offline.setManagerConflictCount) {
+            Offline.setManagerConflictCount(result.conflictCount);
+          }
         }
       }
     );
@@ -757,6 +772,7 @@ var Sheets = (function () {
     fetchDelta:      fetchDelta,
     writeBatch:      writeBatch,
     writeRow:        writeRow,
+    fetchConflicts:  fetchConflicts,
     resolveConflict: resolveConflict,
     startPresence:   startPresence
   };

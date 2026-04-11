@@ -201,6 +201,9 @@ function handleRequest(e) {
       case 'presenceRead':
         return jsonResponse(presenceRead());
 
+      case 'getConflicts':
+        return jsonResponse(getConflictsFromSheet(authResult.role));
+
       case 'conflictResolve':
         return jsonResponse(conflictResolve(
           params.conflictSheetRow,
@@ -628,7 +631,7 @@ function writeRow(rowData, role, coordinatorName) {
         serverRowSnap._last_modified = liveLm;
 
         var conflictSheetRow = _saveConflict(
-          ss, rowData, coordinatorName || '', nowMs
+          ss, rowData, serverRowSnap, coordinatorName || '', nowMs
         );
 
         return {
@@ -825,14 +828,15 @@ function _ensureChangesSheet(ss) {
 // Resolved by conflictResolve: the chosen version is applied to the
 // live Data row, and this conflict row is deleted.
 
-function _saveConflict(ss, offlineData, who, nowMs) {
+function _saveConflict(ss, offlineData, serverData, who, nowMs) {
   try {
     var sheet     = _ensureConflictsSheet(ss);
     var conflictId = 'c_' + nowMs + '_' + (offlineData._row_index || 'new');
     var offlineWhen = offlineData._queued_at ? Number(offlineData._queued_at) : nowMs;
 
-    // Store full offline data as JSON so the client can render a diff
+    // Store both versions as JSON so the manager can render the diff
     var offlineJson = JSON.stringify(offlineData);
+    var serverJson  = serverData ? JSON.stringify(serverData) : '{}';
 
     sheet.appendRow([
       conflictId,
@@ -840,7 +844,8 @@ function _saveConflict(ss, offlineData, who, nowMs) {
       String(who || ''),
       offlineWhen,
       nowMs,
-      offlineJson
+      offlineJson,
+      serverJson
     ]);
 
     return sheet.getLastRow(); // 1-based row index of the conflict record
@@ -857,11 +862,63 @@ function _ensureConflictsSheet(ss) {
   var sheet = ss.getSheetByName(SHEET_CONFLICTS);
   if (sheet) return sheet;
   sheet = ss.insertSheet(SHEET_CONFLICTS);
-  sheet.getRange(1, 1, 1, 6).setValues([[
+  sheet.getRange(1, 1, 1, 7).setValues([[
     'conflict_id', 'live_row_index', 'offline_who',
-    'offline_when', 'detected_at', 'offline_data_json'
+    'offline_when', 'detected_at', 'offline_data_json', 'server_data_json'
   ]]);
   return sheet;
+}
+
+
+// ── Read conflicts (manager only) ────────────────────────────
+//
+// Returns all rows from the Conflicts tab so the manager's browser
+// (which has separate IDB storage) can render the side-by-side panel.
+// Also used by presenceWrite to return the current pending count.
+
+function _getConflictCount(ss) {
+  try {
+    var sheet = ss.getSheetByName(SHEET_CONFLICTS);
+    if (!sheet || sheet.getLastRow() < 2) return 0;
+    return sheet.getLastRow() - 1; // subtract header row
+  } catch (e) { return 0; }
+}
+
+function getConflictsFromSheet(role) {
+  if (role !== 'manager') {
+    return { success: false, error: 'Manager only.' };
+  }
+  var ss    = SpreadsheetApp.getActiveSpreadsheet();
+  var sheet = ss.getSheetByName(SHEET_CONFLICTS);
+  if (!sheet || sheet.getLastRow() < 2) {
+    return { success: true, conflicts: [] };
+  }
+
+  var data      = sheet.getDataRange().getValues();
+  var conflicts = [];
+
+  for (var i = 1; i < data.length; i++) {
+    var row = data[i];
+    if (!row[0]) continue; // skip blank rows
+
+    var offlineData = {};
+    var serverData  = {};
+    try { offlineData = JSON.parse(String(row[5] || '{}')); } catch (e) {}
+    try { serverData  = JSON.parse(String(row[6] || '{}')); } catch (e) {}
+
+    conflicts.push({
+      conflictSheetRow: i + 1,             // 1-based row in the Conflicts tab
+      conflictId:       String(row[0]),
+      liveRowIndex:     Number(row[1]) || null,
+      offlineWho:       String(row[2] || ''),
+      offlineWhen:      _toEpochMs(row[3]),
+      detectedAt:       _toEpochMs(row[4]),
+      offlineData:      offlineData,
+      serverData:       serverData
+    });
+  }
+
+  return { success: true, conflicts: conflicts };
 }
 
 
@@ -993,7 +1050,9 @@ function presenceWrite(name) {
   // are missed between polls even with minor clock drift.
   var changes = _readRecentChanges(ss, nowMs, 75 * 1000);
 
-  return { success: true, users: users, changes: changes };
+  var conflictCount = _getConflictCount(ss);
+
+  return { success: true, users: users, changes: changes, conflictCount: conflictCount };
 }
 
 function _readRecentChanges(ss, nowMs, windowMs) {
