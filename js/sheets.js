@@ -305,11 +305,13 @@ var Sheets = (function () {
         if (role === 'manager' && result.changes && result.changes.length) {
           _handleChanges(result.changes);
         }
-        // Notify offline.js of conflict count so the manager's tab
-        // shows the conflict button even in a separate browser/incognito.
-        if (role === 'manager' && typeof result.conflictCount === 'number') {
-          if (typeof Offline !== 'undefined' && Offline.setManagerConflictCount) {
-            Offline.setManagerConflictCount(result.conflictCount);
+        // Sync conflict count from server for ALL roles.
+        // This clears stale IDB conflict entries on the coordinator's tab
+        // after a manager resolves them, and shows the button on the manager's
+        // tab even in incognito (where IDB is empty).
+        if (typeof result.conflictCount === 'number') {
+          if (typeof Offline !== 'undefined' && Offline.setServerConflictCount) {
+            Offline.setServerConflictCount(result.conflictCount);
           }
         }
       }

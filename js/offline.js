@@ -822,14 +822,22 @@ var Offline = (function () {
     }
   }
 
-  // Called by sheets.js when the presence heartbeat returns a conflictCount
-  // for the manager. Updates the indicator without touching IDB, so the
-  // manager's tab (which may be in incognito with separate storage) reflects
-  // the correct conflict count from the server.
-  function setManagerConflictCount(n) {
+  // Called by sheets.js when the presence heartbeat returns a conflictCount.
+  // Runs for ALL roles so stale IDB conflict entries on the coordinator's tab
+  // are cleared when the manager resolves them server-side.
+  function setServerConflictCount(n) {
     if (n === _conflictCount) return;
     _conflictCount = n;
     _updateConflictIndicator();
+
+    // Server says no conflicts remain — purge any stale IDB entries so
+    // _loadConflictCount doesn't resurrect the count on next page load.
+    if (n === 0 && _db) {
+      try {
+        var tx = _db.transaction([STORE_CONFLICTS], 'readwrite');
+        tx.objectStore(STORE_CONFLICTS).clear();
+      } catch (e) { /* non-fatal */ }
+    }
   }
 
   // ── Conflict panel (manager only) ─────────────────────────
@@ -1688,9 +1696,9 @@ var Offline = (function () {
     setLastSyncTime:      setLastSyncTime,
     getPendingQueue:      getPendingQueue,
     getPendingRowIndexes: getPendingRowIndexes,
-    getConflicts:            getConflicts,
-    resolveConflict:         resolveConflict,
-    setManagerConflictCount: setManagerConflictCount
+    getConflicts:          getConflicts,
+    resolveConflict:       resolveConflict,
+    setServerConflictCount: setServerConflictCount
   };
 
 }());
