@@ -940,46 +940,57 @@ var Offline = (function () {
     var server   = conflict.serverData   || {};
     var queuedAt = conflict.queuedAt     ? new Date(conflict.queuedAt) : null;
     var detected = conflict.detectedAt   ? new Date(conflict.detectedAt) : null;
-    var rowId    = offline.id || offline._row_index || server.id || '(unknown)';
+    var rowId    = offline.id || server.id || offline._row_index || '(unknown)';
+    var who      = conflict.offlineWho   || offline.coordinator_name || '';
 
     // ── Card header ──
     var ch = document.createElement('div');
     ch.className = 'cp-card-header';
     ch.innerHTML =
-      '<span class="cp-card-title">Row ' + _escHtml(String(rowId)) + '</span>' +
-      (queuedAt ? '<span class="cp-card-meta">Offline edit: ' +
-        _formatDate(queuedAt) + '</span>' : '') +
-      (detected ? '<span class="cp-card-meta">Detected: ' +
-        _formatDate(detected) + '</span>' : '');
+      '<span class="cp-card-title">⚠ Conflict — Row ID: ' + _escHtml(String(rowId)) + '</span>' +
+      (who      ? '<span class="cp-card-meta">Edited by: <strong>' + _escHtml(who) + '</strong></span>' : '') +
+      (queuedAt ? '<span class="cp-card-meta">Went offline: ' + _formatDate(queuedAt) + '</span>' : '') +
+      (detected ? '<span class="cp-card-meta">Conflict detected: ' + _formatDate(detected) + '</span>' : '');
     card.appendChild(ch);
 
-    // ── Diff table ──
+    // ── Diff table — only rows that differ are shown ──
     var diffFields = _buildDiff(offline, server);
+
+    // Legend
+    var legend = document.createElement('div');
+    legend.className = 'cp-legend';
+    legend.innerHTML =
+      '<span class="cp-legend-item"><span class="cp-legend-swatch" style="background:#dbeafe"></span>Live version (in Google Sheets now)</span>' +
+      '<span class="cp-legend-item"><span class="cp-legend-swatch" style="background:#dcfce7"></span>Your offline edit</span>' +
+      '<span class="cp-legend-item"><span class="cp-legend-swatch" style="background:#fffbeb;border:1px solid #fde68a"></span>Fields that differ</span>';
+    card.appendChild(legend);
 
     var tbl = document.createElement('table');
     tbl.className = 'cp-diff-table';
     tbl.innerHTML =
       '<thead><tr>' +
-      '<th>Field</th>' +
-      '<th>Live Version</th>' +
-      '<th>Your Offline Edit</th>' +
+      '<th class="cp-th--field">Field</th>' +
+      '<th class="cp-th--live">Live Version (online)</th>' +
+      '<th class="cp-th--offline">Your Offline Edit</th>' +
       '</tr></thead>';
 
     var tbody = document.createElement('tbody');
-    diffFields.forEach(function (d) {
-      var tr = document.createElement('tr');
-      tr.innerHTML =
-        '<td class="cp-field-name">' + _escHtml(d.key) + '</td>' +
-        '<td class="cp-val cp-val--live">'    + _escHtml(String(d.live    || '')) + '</td>' +
-        '<td class="cp-val cp-val--offline">' + _escHtml(String(d.offline || '')) + '</td>';
-      tbody.appendChild(tr);
-    });
 
     if (!diffFields.length) {
       var trNone = document.createElement('tr');
       trNone.innerHTML =
-        '<td colspan="3" class="cp-no-diff">No field differences detected.</td>';
+        '<td colspan="3" class="cp-no-diff">No field differences detected — timestamps differ but values are the same.</td>';
       tbody.appendChild(trNone);
+    } else {
+      diffFields.forEach(function (d) {
+        var tr = document.createElement('tr');
+        tr.className = 'cp-row--changed';
+        tr.innerHTML =
+          '<td class="cp-field-name">' + _escHtml(d.key) + '</td>' +
+          '<td class="cp-val cp-val--live">'    + _escHtml(String(d.live    || '—')) + '</td>' +
+          '<td class="cp-val cp-val--offline">' + _escHtml(String(d.offline || '—')) + '</td>';
+        tbody.appendChild(tr);
+      });
     }
 
     tbl.appendChild(tbody);
@@ -991,16 +1002,16 @@ var Offline = (function () {
 
     var keepLiveBtn = document.createElement('button');
     keepLiveBtn.className = 'cp-btn cp-btn--secondary';
-    keepLiveBtn.textContent = 'Keep Live Version';
-    keepLiveBtn.title = 'Discard your offline edit. The live row stays as-is.';
+    keepLiveBtn.textContent = '\uD83D\uDCBB Keep Live Version';
+    keepLiveBtn.title = 'Discard the offline edit. Keep what is currently in Google Sheets.';
     keepLiveBtn.onclick = function () {
       _resolveFromPanel(conflict.id, 'online', null, card);
     };
 
     var keepOfflineBtn = document.createElement('button');
     keepOfflineBtn.className = 'cp-btn cp-btn--primary';
-    keepOfflineBtn.textContent = 'Keep Offline Version';
-    keepOfflineBtn.title = 'Apply your offline edit to the live row.';
+    keepOfflineBtn.textContent = '\u270F Keep Offline Edit';
+    keepOfflineBtn.title = 'Overwrite the live row with the offline edit.';
     keepOfflineBtn.onclick = function () {
       _resolveFromPanel(conflict.id, 'offline', offline, card);
     };
@@ -1008,6 +1019,7 @@ var Offline = (function () {
     var mergeBtn = document.createElement('button');
     mergeBtn.className = 'cp-btn cp-btn--ghost';
     mergeBtn.textContent = 'Merge Manually\u2026';
+    mergeBtn.title = 'Choose field-by-field which value to keep.';
     mergeBtn.onclick = function () {
       _expandMergeForm(conflict, card);
       mergeBtn.setAttribute('hidden', '');
@@ -1048,69 +1060,101 @@ var Offline = (function () {
     return diffs;
   }
 
-  // Build the manual merge form: editable inputs for every non-system field.
-  // Pre-filled with the offline version's values so the manager adjusts only
-  // what needs changing.
+  // Build the manual merge form.
+  // Shows ONLY the fields that differ — 4 columns: Field | Live | Offline | Your Choice.
+  // Non-conflicting fields are automatically carried over from the offline version.
   function _buildMergeForm(conflict) {
-    var offline = conflict.offlineData || {};
-    var server  = conflict.serverData  || {};
-    var SKIP = { _row_index: 1, _last_modified: 1, _created_date: 1,
-                 _local_id: 1, _locked: 1, _queued_at: 1 };
+    var offline    = conflict.offlineData || {};
+    var server     = conflict.serverData  || {};
+    var diffFields = _buildDiff(offline, server);
 
     var form = document.createElement('div');
     form.className = 'cp-merge-form';
 
     var heading = document.createElement('div');
     heading.className = 'cp-merge-heading';
-    heading.textContent = 'Edit fields below, then click Save Merge.';
+    heading.textContent = 'Choose the value to keep for each conflicting field, then click Save Merge.';
     form.appendChild(heading);
 
-    // Show all fields that appear in either version
-    var allKeys = {};
-    Object.keys(offline).forEach(function (k) { allKeys[k] = 1; });
-    Object.keys(server).forEach(function (k)  { allKeys[k] = 1; });
-    var sortedKeys = Object.keys(allKeys).filter(function (k) { return !SKIP[k]; });
-    sortedKeys.sort();
+    var inputMap = {}; // key → input element
 
-    var inputMap = {};
+    if (!diffFields.length) {
+      var noConflict = document.createElement('p');
+      noConflict.style.cssText = 'color:#555;font-size:12px;margin:0 0 12px';
+      noConflict.textContent = 'No field differences — either version is safe to keep.';
+      form.appendChild(noConflict);
+    } else {
+      // 4-column grid header
+      var grid = document.createElement('div');
+      grid.className = 'cp-merge-cols';
 
-    sortedKeys.forEach(function (k) {
-      var row = document.createElement('div');
-      row.className = 'cp-merge-row';
+      ['Field', 'Live Version', 'Your Offline Edit', 'Your Choice'].forEach(function (h, i) {
+        var hdr = document.createElement('div');
+        hdr.className = 'cp-merge-col-hdr ' +
+          ['hdr-field', 'hdr-live', 'hdr-offline', 'hdr-merged'][i];
+        hdr.textContent = h;
+        grid.appendChild(hdr);
+      });
 
-      var label = document.createElement('label');
-      label.className = 'cp-merge-label';
-      label.textContent = k;
+      diffFields.forEach(function (d) {
+        // Field name cell
+        var fCell = document.createElement('div');
+        fCell.className = 'cp-merge-cell cell-field';
+        fCell.textContent = d.key;
+        grid.appendChild(fCell);
 
-      var input = document.createElement('input');
-      input.type = 'text';
-      input.className = 'cp-merge-input';
-      input.value = String(offline[k] != null ? offline[k] : '');
-      input.setAttribute('data-key', k);
-      input.title =
-        'Live: ' + String(server[k] != null ? server[k] : '') +
-        ' | Offline: ' + String(offline[k] != null ? offline[k] : '');
+        // Live value cell (click to copy)
+        var lCell = document.createElement('div');
+        lCell.className = 'cp-merge-cell cell-live';
+        lCell.textContent = d.live || '—';
+        lCell.title = 'Click to use this value';
+        lCell.style.cursor = 'pointer';
+        grid.appendChild(lCell);
 
-      // Highlight fields that differ from the live version
-      var liveVal = String(server[k] != null ? server[k] : '');
-      if (input.value !== liveVal) {
-        input.classList.add('cp-merge-input--changed');
-      }
+        // Offline value cell (click to copy)
+        var oCell = document.createElement('div');
+        oCell.className = 'cp-merge-cell cell-offline';
+        oCell.textContent = d.offline || '—';
+        oCell.title = 'Click to use this value';
+        oCell.style.cursor = 'pointer';
+        grid.appendChild(oCell);
 
-      inputMap[k] = input;
-      row.appendChild(label);
-      row.appendChild(input);
-      form.appendChild(row);
-    });
+        // Editable choice cell — pre-filled with offline value
+        var mCell = document.createElement('div');
+        mCell.className = 'cp-merge-cell';
+        mCell.style.padding = '3px 6px';
+
+        var input = document.createElement('input');
+        input.type      = 'text';
+        input.className = 'cp-merge-input';
+        input.value     = d.offline || '';
+        input.setAttribute('data-key', d.key);
+        inputMap[d.key] = input;
+
+        // Click live / offline cell to auto-fill the input
+        lCell.onclick = function () { input.value = d.live    || ''; input.focus(); };
+        oCell.onclick = function () { input.value = d.offline || ''; input.focus(); };
+
+        mCell.appendChild(input);
+        grid.appendChild(mCell);
+      });
+
+      form.appendChild(grid);
+
+      var hint = document.createElement('p');
+      hint.style.cssText = 'color:#666;font-size:11px;margin:4px 0 12px';
+      hint.textContent = 'Tip: click any Live or Offline value to copy it into the Your Choice box.';
+      form.appendChild(hint);
+    }
 
     var saveBtn = document.createElement('button');
-    saveBtn.className = 'cp-btn cp-btn--primary';
+    saveBtn.className   = 'cp-btn cp-btn--primary';
     saveBtn.textContent = 'Save Merge';
-    saveBtn.style.marginTop = '12px';
     saveBtn.onclick = function () {
+      // Start from the offline version, then override with the manager's choices
       var mergedData = _shallowCopy(offline);
-      sortedKeys.forEach(function (k) {
-        if (inputMap[k]) mergedData[k] = inputMap[k].value;
+      Object.keys(inputMap).forEach(function (k) {
+        mergedData[k] = inputMap[k].value;
       });
       var card = form.closest('.cp-card');
       _resolveFromPanel(conflict.id, 'merge', mergedData, card);
@@ -1287,11 +1331,13 @@ var Offline = (function () {
       '}',
 
       // ── Conflict panel overlay ────────────────────────────
+      // Uses explicit light-theme colors throughout so the panel is
+      // always readable regardless of the app's dark CSS variables.
 
       '#conflict-panel-overlay {',
         'position: fixed;',
         'inset: 0;',
-        'background: rgba(0,0,0,0.55);',
+        'background: rgba(0,0,0,0.6);',
         'z-index: 10000;',
         'display: flex;',
         'align-items: center;',
@@ -1300,15 +1346,16 @@ var Offline = (function () {
       '}',
 
       '#conflict-panel {',
-        'background: var(--bg-surface, #1a2535);',
-        'border: 1px solid var(--border, #2a3a50);',
+        'background: #ffffff;',
+        'border: 1px solid #d0d7de;',
+        'border-radius: 6px;',
         'width: 100%;',
-        'max-width: 860px;',
-        'max-height: 80vh;',
+        'max-width: 900px;',
+        'max-height: 85vh;',
         'display: flex;',
         'flex-direction: column;',
         'overflow: hidden;',
-        'box-shadow: 0 16px 48px rgba(0,0,0,0.5);',
+        'box-shadow: 0 20px 60px rgba(0,0,0,0.4);',
       '}',
 
       '.cp-header {',
@@ -1316,31 +1363,32 @@ var Offline = (function () {
         'align-items: center;',
         'justify-content: space-between;',
         'padding: 14px 20px;',
-        'border-bottom: 1px solid var(--border, #2a3a50);',
+        'background: #fff8ee;',
+        'border-bottom: 2px solid #e8a030;',
         'flex-shrink: 0;',
       '}',
 
       '.cp-title {',
-        'font-family: var(--font-display);',
+        'font-family: var(--font-display, sans-serif);',
         'font-weight: 700;',
         'font-size: 13px;',
-        'letter-spacing: 0.08em;',
+        'letter-spacing: 0.06em;',
         'text-transform: uppercase;',
-        'color: #e8a030;',
+        'color: #b87a10;',
       '}',
 
       '.cp-close {',
         'background: transparent;',
         'border: none;',
-        'color: var(--text-secondary);',
-        'font-size: 20px;',
+        'color: #555;',
+        'font-size: 22px;',
         'line-height: 1;',
         'cursor: pointer;',
         'padding: 0 4px;',
         'transition: color 0.15s;',
       '}',
 
-      '.cp-close:hover { color: var(--text-on-navy); }',
+      '.cp-close:hover { color: #111; }',
 
       '.cp-body {',
         'overflow-y: auto;',
@@ -1349,45 +1397,45 @@ var Offline = (function () {
         'flex-direction: column;',
         'gap: 20px;',
         'flex: 1;',
+        'background: #f6f8fa;',
       '}',
 
       '.cp-empty {',
-        'font-family: var(--font-body);',
         'font-size: 13px;',
-        'color: var(--text-secondary);',
+        'color: #555;',
         'text-align: center;',
-        'padding: 32px 0;',
+        'padding: 36px 0;',
       '}',
 
       // ── Conflict card ──────────────────────────────────────
 
       '.cp-card {',
-        'border: 1px solid var(--border, #2a3a50);',
-        'padding: 14px 16px 12px;',
+        'background: #ffffff;',
+        'border: 1px solid #d0d7de;',
+        'border-radius: 5px;',
+        'padding: 16px;',
+        'box-shadow: 0 1px 4px rgba(0,0,0,0.06);',
       '}',
 
       '.cp-card-header {',
         'display: flex;',
         'align-items: baseline;',
         'gap: 16px;',
-        'margin-bottom: 10px;',
+        'margin-bottom: 12px;',
         'flex-wrap: wrap;',
+        'padding-bottom: 10px;',
+        'border-bottom: 1px solid #e8ecf0;',
       '}',
 
       '.cp-card-title {',
-        'font-family: var(--font-display);',
         'font-weight: 700;',
-        'font-size: 12px;',
-        'letter-spacing: 0.06em;',
-        'text-transform: uppercase;',
-        'color: var(--text-on-navy);',
+        'font-size: 13px;',
+        'color: #111;',
       '}',
 
       '.cp-card-meta {',
-        'font-family: var(--font-mono);',
-        'font-size: 10px;',
-        'color: var(--text-secondary);',
-        'letter-spacing: 0.06em;',
+        'font-size: 11px;',
+        'color: #666;',
       '}',
 
       // ── Diff table ────────────────────────────────────────
@@ -1395,49 +1443,89 @@ var Offline = (function () {
       '.cp-diff-table {',
         'width: 100%;',
         'border-collapse: collapse;',
-        'font-family: var(--font-body);',
         'font-size: 12px;',
-        'margin-bottom: 10px;',
+        'margin-bottom: 14px;',
+        'border: 1px solid #d0d7de;',
+        'border-radius: 4px;',
+        'overflow: hidden;',
       '}',
 
       '.cp-diff-table th {',
-        'font-family: var(--font-mono);',
-        'font-size: 9px;',
-        'letter-spacing: 0.12em;',
+        'font-size: 10px;',
+        'font-weight: 700;',
+        'letter-spacing: 0.08em;',
         'text-transform: uppercase;',
-        'color: var(--text-secondary);',
         'text-align: left;',
-        'padding: 4px 8px;',
-        'border-bottom: 1px solid var(--border);',
+        'padding: 7px 10px;',
+        'border-bottom: 2px solid #d0d7de;',
+        'color: #333;',
       '}',
+
+      // Column header colour coding
+      '.cp-th--live    { background: #dbeafe; color: #1e40af; }',
+      '.cp-th--offline { background: #dcfce7; color: #166534; }',
+      '.cp-th--field   { background: #f3f4f6; color: #374151; }',
 
       '.cp-diff-table td {',
-        'padding: 4px 8px;',
-        'border-bottom: 1px solid rgba(42,58,80,0.5);',
+        'padding: 6px 10px;',
+        'border-bottom: 1px solid #e8ecf0;',
         'vertical-align: top;',
-        'color: var(--text-on-navy);',
+        'color: #111;',
+        'font-size: 12px;',
       '}',
 
+      '.cp-diff-table tr:last-child td { border-bottom: none; }',
+
+      // Highlight the entire row where values differ
+      '.cp-diff-table tr.cp-row--changed { background: #fffbeb; }',
+      '.cp-diff-table tr.cp-row--changed td { border-bottom-color: #fde68a; }',
+
       '.cp-field-name {',
-        'font-family: var(--font-mono);',
-        'font-size: 10px;',
-        'color: var(--text-secondary);',
+        'font-family: var(--font-mono, monospace);',
+        'font-size: 11px;',
+        'font-weight: 600;',
+        'color: #374151;',
         'white-space: nowrap;',
       '}',
 
       '.cp-val--live {',
-        'color: var(--text-secondary);',
+        'background: #eff6ff;',
+        'color: #1e3a5f;',
       '}',
 
       '.cp-val--offline {',
-        'color: #7ec8a0;',
+        'background: #f0fdf4;',
+        'color: #14532d;',
+        'font-weight: 600;',
       '}',
 
       '.cp-no-diff {',
-        'color: var(--text-secondary);',
+        'color: #666;',
         'font-style: italic;',
         'text-align: center;',
-        'padding: 8px;',
+        'padding: 12px;',
+      '}',
+
+      // Legend below the table
+      '.cp-legend {',
+        'display: flex;',
+        'gap: 16px;',
+        'margin-bottom: 12px;',
+        'font-size: 11px;',
+      '}',
+
+      '.cp-legend-item {',
+        'display: flex;',
+        'align-items: center;',
+        'gap: 5px;',
+        'color: #444;',
+      '}',
+
+      '.cp-legend-swatch {',
+        'width: 12px;',
+        'height: 12px;',
+        'border-radius: 2px;',
+        'flex-shrink: 0;',
       '}',
 
       // ── Action buttons ────────────────────────────────────
@@ -1447,122 +1535,141 @@ var Offline = (function () {
         'gap: 8px;',
         'align-items: center;',
         'flex-wrap: wrap;',
+        'padding-top: 4px;',
       '}',
 
       '.cp-btn {',
-        'height: 28px;',
-        'padding: 0 14px;',
-        'font-family: var(--font-display);',
+        'height: 30px;',
+        'padding: 0 16px;',
         'font-weight: 600;',
-        'font-size: 10px;',
-        'letter-spacing: 0.10em;',
-        'text-transform: uppercase;',
+        'font-size: 11px;',
+        'letter-spacing: 0.04em;',
         'cursor: pointer;',
         'border: 1px solid;',
-        'transition: background 0.15s, color 0.15s;',
+        'border-radius: 4px;',
+        'transition: background 0.15s, opacity 0.15s;',
         'white-space: nowrap;',
       '}',
 
-      '.cp-btn--primary {',
-        'background: var(--accent, #c9973a);',
-        'border-color: var(--accent, #c9973a);',
-        'color: var(--bg-navy, #0f1e30);',
-      '}',
-
-      '.cp-btn--primary:hover {',
-        'background: var(--accent-bright, #e8b04a);',
-        'border-color: var(--accent-bright, #e8b04a);',
-      '}',
-
+      // Keep Live — neutral blue
       '.cp-btn--secondary {',
-        'background: transparent;',
-        'border-color: var(--border-navy, #2a3a50);',
-        'color: var(--text-muted-navy, #8fa5bf);',
+        'background: #eff6ff;',
+        'border-color: #93c5fd;',
+        'color: #1e40af;',
       '}',
+      '.cp-btn--secondary:hover { background: #dbeafe; }',
 
-      '.cp-btn--secondary:hover {',
-        'background: rgba(255,255,255,0.06);',
-        'color: var(--text-on-navy);',
+      // Keep Offline — green
+      '.cp-btn--primary {',
+        'background: #16a34a;',
+        'border-color: #15803d;',
+        'color: #fff;',
       '}',
+      '.cp-btn--primary:hover { background: #15803d; }',
 
+      // Merge Manually — ghost
       '.cp-btn--ghost {',
         'background: transparent;',
-        'border-color: transparent;',
-        'color: var(--text-secondary);',
+        'border-color: #d0d7de;',
+        'color: #555;',
         'font-weight: 400;',
-        'text-decoration: underline;',
-        'padding: 0 4px;',
       '}',
-
-      '.cp-btn--ghost:hover { color: var(--text-on-navy); }',
+      '.cp-btn--ghost:hover { background: #f3f4f6; color: #111; }',
 
       '.cp-resolving {',
-        'font-family: var(--font-mono);',
-        'font-size: 10px;',
-        'color: var(--text-secondary);',
-        'letter-spacing: 0.10em;',
-        'text-transform: uppercase;',
+        'font-size: 11px;',
+        'color: #666;',
+        'font-style: italic;',
       '}',
 
       '.cp-resolve-error {',
-        'font-family: var(--font-mono);',
-        'font-size: 10px;',
-        'color: #c0392b;',
-        'letter-spacing: 0.08em;',
+        'font-size: 11px;',
+        'color: #dc2626;',
+        'font-weight: 600;',
       '}',
 
       // ── Merge form ────────────────────────────────────────
 
       '.cp-merge-form {',
-        'margin-top: 12px;',
-        'padding-top: 12px;',
-        'border-top: 1px solid var(--border, #2a3a50);',
+        'margin-top: 14px;',
+        'padding: 14px;',
+        'background: #f9fafb;',
+        'border: 1px solid #e5e7eb;',
+        'border-radius: 4px;',
       '}',
 
       '.cp-merge-heading {',
-        'font-family: var(--font-mono);',
-        'font-size: 10px;',
-        'letter-spacing: 0.10em;',
+        'font-size: 11px;',
+        'font-weight: 700;',
+        'letter-spacing: 0.06em;',
         'text-transform: uppercase;',
-        'color: var(--text-secondary);',
-        'margin-bottom: 10px;',
+        'color: #374151;',
+        'margin-bottom: 12px;',
       '}',
 
-      '.cp-merge-row {',
-        'display: flex;',
-        'align-items: center;',
-        'gap: 10px;',
-        'margin-bottom: 6px;',
-      '}',
-
-      '.cp-merge-label {',
-        'font-family: var(--font-mono);',
-        'font-size: 10px;',
-        'color: var(--text-secondary);',
-        'width: 180px;',
-        'flex-shrink: 0;',
-        'letter-spacing: 0.04em;',
-      '}',
-
-      '.cp-merge-input {',
-        'flex: 1;',
-        'height: 26px;',
-        'padding: 0 8px;',
-        'background: var(--bg-navy, #0f1e30);',
-        'border: 1px solid var(--border-navy, #2a3a50);',
-        'color: var(--text-on-navy, #e8edf3);',
-        'font-family: var(--font-body);',
+      '.cp-merge-cols {',
+        'display: grid;',
+        'grid-template-columns: 160px 1fr 1fr 1fr;',
+        'gap: 0;',
+        'border: 1px solid #d0d7de;',
+        'border-radius: 4px;',
+        'overflow: hidden;',
+        'margin-bottom: 12px;',
         'font-size: 12px;',
       '}',
 
-      '.cp-merge-input--changed {',
-        'border-color: rgba(201,151,58,0.5);',
-        'background: rgba(201,151,58,0.04);',
+      '.cp-merge-col-hdr {',
+        'font-size: 10px;',
+        'font-weight: 700;',
+        'letter-spacing: 0.08em;',
+        'text-transform: uppercase;',
+        'padding: 6px 8px;',
+        'border-bottom: 2px solid #d0d7de;',
+        'color: #333;',
+      '}',
+
+      '.cp-merge-col-hdr.hdr-field   { background: #f3f4f6; color: #374151; }',
+      '.cp-merge-col-hdr.hdr-live    { background: #dbeafe; color: #1e40af; }',
+      '.cp-merge-col-hdr.hdr-offline { background: #dcfce7; color: #166534; }',
+      '.cp-merge-col-hdr.hdr-merged  { background: #fef9ee; color: #92400e; }',
+
+      '.cp-merge-cell {',
+        'padding: 5px 8px;',
+        'border-bottom: 1px solid #e8ecf0;',
+        'border-right: 1px solid #e8ecf0;',
+        'color: #111;',
+        'vertical-align: middle;',
+      '}',
+
+      '.cp-merge-cell:last-child { border-right: none; }',
+
+      '.cp-merge-cell.cell-field {',
+        'background: #f9fafb;',
+        'font-family: var(--font-mono, monospace);',
+        'font-size: 11px;',
+        'font-weight: 600;',
+        'color: #374151;',
+      '}',
+
+      '.cp-merge-cell.cell-live    { background: #eff6ff; color: #1e3a5f; }',
+      '.cp-merge-cell.cell-offline { background: #f0fdf4; color: #14532d; font-weight: 600; }',
+
+      '.cp-merge-input {',
+        'width: 100%;',
+        'height: 24px;',
+        'padding: 0 6px;',
+        'background: #fff;',
+        'border: 1px solid #d0d7de;',
+        'border-radius: 3px;',
+        'color: #111;',
+        'font-size: 12px;',
+        'box-sizing: border-box;',
       '}',
 
       '.cp-merge-input:focus {',
         'outline: none;',
-        'border-color: var(--accent, #c9973a);',
+        'border-color: #c9973a;',
+        'box-shadow: 0 0 0 2px rgba(201,151,58,0.2);',
       '}',
 
     ].join('\n');
