@@ -281,11 +281,18 @@ var Sheets = (function () {
     // Fire a heartbeat immediately when the device comes back online
     // so avatars refresh without waiting up to 30 seconds.
     window.addEventListener('online', _heartbeatTick);
+
+    // Pause heartbeat when the window/PWA is minimized or hidden,
+    // resume immediately when the user comes back.
+    document.addEventListener('visibilitychange', function () {
+      if (document.visibilityState === 'visible') _heartbeatTick();
+    });
   }
 
   function _heartbeatTick() {
     if (!_presenceName) return;
-    if (!navigator.onLine) return; // skip when offline
+    if (!navigator.onLine) return;
+    if (document.visibilityState !== 'visible') return; // skip when minimized
 
     _postSilent(
       { action: 'presenceWrite', presenceName: _presenceName },
