@@ -244,7 +244,16 @@ var Reconcile = (function () {
           '</label>',
           '<div id="rc-file-name" class="rc-file-name" hidden></div>',
         '</div>',
-        '<div id="rc-parse-msg" class="rc-parse-msg" hidden></div>',
+        '<div id="rc-parse-area" class="rc-parse-area" hidden>',
+          '<div class="rc-prog-label-row">',
+            '<span id="rc-prog-label" class="rc-prog-label">Reading file\u2026</span>',
+            '<span id="rc-prog-pct"   class="rc-prog-pct">0%</span>',
+          '</div>',
+          '<div class="rc-prog-track">',
+            '<div id="rc-prog-bar" class="rc-prog-bar" style="width:0%"></div>',
+          '</div>',
+          '<div id="rc-parse-msg" class="rc-parse-msg" hidden></div>',
+        '</div>',
       '</div>',
       '<div class="rc-footer">',
         '<button class="rc-btn rc-btn--ghost" id="rc-back-1">&#8592; Back</button>',
@@ -257,36 +266,79 @@ var Reconcile = (function () {
     _wireClose();
     document.getElementById('rc-back-1').addEventListener('click', _renderStep1);
 
-    var fileInput = document.getElementById('rc-file-input');
+    var fileInput  = document.getElementById('rc-file-input');
     var fileNameEl = document.getElementById('rc-file-name');
+    var parseArea  = document.getElementById('rc-parse-area');
     var parseMsg   = document.getElementById('rc-parse-msg');
+    var progBar    = document.getElementById('rc-prog-bar');
+    var progPct    = document.getElementById('rc-prog-pct');
+    var progLabel  = document.getElementById('rc-prog-label');
     var nextBtn    = document.getElementById('rc-step2-next');
     var dropZone   = document.getElementById('rc-drop-zone');
 
-    var _feedbackData = null; // parsed result
+    var _feedbackData = null;
+
+    function _setProgress(pct, label) {
+      var p = Math.round(pct);
+      progBar.style.width   = p + '%';
+      progBar.style.background = p === 100
+        ? 'var(--color-success, #2a7a4a)'
+        : 'var(--accent, #c9973a)';
+      progPct.textContent   = p + '%';
+      if (label) progLabel.textContent = label;
+    }
 
     function handleFile(file) {
       if (!file) return;
       fileNameEl.textContent = file.name;
       fileNameEl.removeAttribute('hidden');
       parseMsg.setAttribute('hidden', '');
-      nextBtn.disabled = true;
-      _feedbackData    = null;
+      parseArea.removeAttribute('hidden');
+      nextBtn.disabled  = true;
+      _feedbackData     = null;
 
-      _showParseMsg(parseMsg, 'Parsing\u2026', 'info');
+      _setProgress(0, 'Reading file\u2026');
 
       _loadXlsx(function () {
-        _parseFeedbackFile(file, _submNum, function (err, data) {
-          if (err) {
-            _showParseMsg(parseMsg, err, 'error');
-            return;
+        var reader = new FileReader();
+
+        reader.onprogress = function (e) {
+          if (e.lengthComputable) {
+            _setProgress((e.loaded / e.total) * 70, 'Reading file\u2026');
           }
-          _feedbackData = data;
+        };
+
+        reader.onload = function (e) {
+          _setProgress(75, 'Parsing rows\u2026');
+          // Yield to the browser so the bar repaints before the sync XLSX parse
+          setTimeout(function () {
+            _parseFeedbackFile(e, _submNum, function (err, data) {
+              if (err) {
+                _setProgress(100, 'Error');
+                progBar.style.background = 'var(--color-error, #c0392b)';
+                _showParseMsg(parseMsg, err, 'error');
+                return;
+              }
+              _setProgress(100, 'Done');
+              _feedbackData = data;
+              _showParseMsg(parseMsg,
+                data.rows.length + ' rows parsed from ' +
+                (ORDINALS[_submNum] || _submNum + 'th') +
+                ' submission column.', 'ok');
+              nextBtn.disabled = false;
+            });
+          }, 30);
+        };
+
+        reader.onerror = function () {
+          _setProgress(100, 'Read error');
+          progBar.style.background = 'var(--color-error, #c0392b)';
           _showParseMsg(parseMsg,
-            data.rows.length + ' rows parsed from submission ' +
-            ORDINALS[_submNum] + ' column.', 'ok');
-          nextBtn.disabled = false;
-        });
+            'Could not read the file. Make sure it is a valid Excel or CSV file.',
+            'error');
+        };
+
+        reader.readAsArrayBuffer(file);
       });
     }
 
@@ -326,34 +378,59 @@ var Reconcile = (function () {
     var results     = _compareResults;
     var accepted    = results.filter(function (r) { return r.status === 'accepted'; });
     var rejected    = results.filter(function (r) { return r.status === 'rejected'; });
-    var qtyChanged  = accepted.filter(function (r) { return r.qtyChanged; });
+    var rcChanged   = accepted.filter(function (r) { return r.rcChanged; });
     var notFound    = results.filter(function (r) { return r.status === 'not_found'; });
 
     var tableRows = results.map(function (r) {
-      var rowCls = r.status === 'rejected'   ? 'rc-row--rej'
-                 : r.status === 'not_found'  ? 'rc-row--missing'
-                 : r.qtyChanged              ? 'rc-row--changed'
-                 :                             'rc-row--ok';
+      var rowCls = r.status === 'rejected'  ? 'rc-row--rej'
+                 : r.status === 'not_found' ? 'rc-row--missing'
+                 : r.rcChanged             ? 'rc-row--changed'
+                 :                            'rc-row--ok';
 
+      // RC Quantity column
       var qtyCellHtml;
       if (r.status === 'not_found') {
         qtyCellHtml = '<span class="rc-muted">&#8213;</span>';
       } else if (r.status === 'rejected') {
-        qtyCellHtml = '<span class="rc-muted">' + _fmt(r.ourQty) + '</span>';
-      } else if (r.qtyChanged) {
-        qtyCellHtml = '<span class="rc-old-val">' + _fmt(r.ourQty) + '</span>' +
+        qtyCellHtml = '<span class="rc-muted">' + _fmt(r.ourRcQty) + '</span>';
+      } else if (r.rcChanged) {
+        qtyCellHtml = '<span class="rc-old-val">' + _fmt(r.ourRcQty) + '</span>' +
                       ' <span class="rc-arrow">&#8594;</span> ' +
-                      '<span class="rc-new-val">' + _fmt(r.custQty) + '</span>';
+                      '<span class="rc-new-val">' + _fmt(r.custRcQty) + '</span>';
       } else {
-        qtyCellHtml = '<span class="rc-ok-val">' + _fmt(r.ourQty) + '</span>';
+        qtyCellHtml = '<span class="rc-ok-val">' + _fmt(r.ourRcQty) + '</span>';
+      }
+
+      // Distance + Abs Qty change column (only shown when RC changed)
+      var changeCellHtml = '';
+      if (r.rcChanged) {
+        var currentDist  = String(r.sysRow.distance          || '').trim();
+        var currentAbsQty = Number(r.sysRow.absolute_quantity || 0);
+
+        if (r.distChanged) {
+          changeCellHtml += '<span class="rc-change-item">' +
+            '<span class="rc-change-lbl">Dist:</span> ' +
+            '<span class="rc-old-val">' + _esc(currentDist) + '</span>' +
+            ' <span class="rc-arrow">&#8594;</span> ' +
+            '<span class="rc-new-val">' + _esc(r.newDistance) + '</span>' +
+            '</span>';
+        }
+        if (r.absQtyChanged) {
+          changeCellHtml += '<span class="rc-change-item">' +
+            '<span class="rc-change-lbl">Qty:</span> ' +
+            '<span class="rc-old-val">' + _fmt(currentAbsQty) + '</span>' +
+            ' <span class="rc-arrow">&#8594;</span> ' +
+            '<span class="rc-new-val">' + _fmt(r.newAbsQty) + '</span>' +
+            '</span>';
+        }
       }
 
       var statusBadgeHtml = r.status === 'not_found'
         ? '<span class="rc-badge rc-badge--missing">Not Found</span>'
         : r.status === 'rejected'
         ? '<span class="rc-badge rc-badge--rej">REJ</span>'
-        : r.qtyChanged
-        ? '<span class="rc-badge rc-badge--changed">Qty Updated</span>'
+        : r.rcChanged
+        ? '<span class="rc-badge rc-badge--changed">Updated</span>'
         : '<span class="rc-badge rc-badge--ok">Approved</span>';
 
       return [
@@ -361,6 +438,7 @@ var Reconcile = (function () {
           '<td class="rc-td-mono">' + _esc(String(r.sysRow.logical_site_id || '')) + '</td>',
           '<td class="rc-td-desc">' + _esc(String(r.sysRow.line_item || '')) + '</td>',
           '<td>' + qtyCellHtml + '</td>',
+          '<td class="rc-td-changes">' + (changeCellHtml || '<span class="rc-muted">&#8213;</span>') + '</td>',
           '<td>' + _esc(r.custStatus || '') + '</td>',
           '<td>' + statusBadgeHtml + '</td>',
         '</tr>',
@@ -372,18 +450,19 @@ var Reconcile = (function () {
       '<div class="rc-body rc-body--scroll">',
         '<div class="rc-section-lbl">Step 3 — Review Changes</div>',
         '<div class="rc-chips">',
-          _chip(accepted.length - qtyChanged.length, 'Approved',     'chip--ok'),
-          _chip(qtyChanged.length,                   'Qty Updated',  'chip--changed'),
-          _chip(rejected.length,                     'Rejected',     'chip--rej'),
-          notFound.length ? _chip(notFound.length,   'Not Found',    'chip--missing') : '',
+          _chip(accepted.length - rcChanged.length, 'Approved',    'chip--ok'),
+          _chip(rcChanged.length,                   'Updated',     'chip--changed'),
+          _chip(rejected.length,                    'Rejected',    'chip--rej'),
+          notFound.length ? _chip(notFound.length,  'Not Found',   'chip--missing') : '',
         '</div>',
         '<div class="rc-notice">Review the changes below. Click <strong>Apply</strong> to write them to the system.</div>',
         '<table class="rc-table">',
           '<thead><tr>',
             '<th>Site ID</th>',
             '<th>Line Item</th>',
-            '<th>RC Quantity</th>',
-            '<th>Customer Status</th>',
+            '<th>RC Quantity <span class="rc-th-note">Ours &rarr; Customer</span></th>',
+            '<th>Field Changes <span class="rc-th-note">Dist / Qty</span></th>',
+            '<th>Status</th>',
             '<th>Outcome</th>',
           '</tr></thead>',
           '<tbody>' + tableRows + '</tbody>',
@@ -468,13 +547,17 @@ var Reconcile = (function () {
       if (r.status === 'rejected') {
         update.po_status = PO_REJECTED;
       } else {
-        // accepted
         update.po_status = PO_APPROVED;
-        if (r.qtyChanged) {
-          update.actual_quantity = r.custQty;
-          // Recalculate new_total_price from accepted quantity × existing unit price
+
+        if (r.rcChanged) {
+          // Always write the resolved distance + absolute_quantity + actual_quantity
+          update.distance          = r.newDistance;
+          update.absolute_quantity = r.newAbsQty;
+          update.actual_quantity   = r.custRcQty;
+
+          // Recalculate new_total_price = unit_price × RC_quantity
           var price = Number(r.sysRow.new_price || 0);
-          if (price) update.new_total_price = r.custQty * price;
+          if (price) update.new_total_price = _round4(price * r.custRcQty);
         }
       }
 
@@ -490,7 +573,7 @@ var Reconcile = (function () {
       else if (r.status === 'rejected')  rejected++;
       else {
         approved++;
-        if (r.qtyChanged) qtyUpdated++;
+        if (r.rcChanged) qtyUpdated++;
       }
     });
     return { approved: approved, rejected: rejected, qtyUpdated: qtyUpdated, notFound: notFound };
@@ -506,9 +589,9 @@ var Reconcile = (function () {
         '<div class="rc-done-icon">&#10003;</div>',
         '<div class="rc-done-title">Reconciliation Complete</div>',
         '<div class="rc-chips rc-chips--center">',
-          _chip(counts.approved,   'Approved',    'chip--ok'),
-          _chip(counts.qtyUpdated, 'Qty Updated', 'chip--changed'),
-          _chip(counts.rejected,   'Rejected',    'chip--rej'),
+          _chip(counts.approved,   'Approved', 'chip--ok'),
+          _chip(counts.qtyUpdated, 'Updated',  'chip--changed'),
+          _chip(counts.rejected,   'Rejected', 'chip--rej'),
           counts.notFound ? _chip(counts.notFound, 'Not Found', 'chip--missing') : '',
         '</div>',
         '<div class="rc-done-meta">',
@@ -548,7 +631,6 @@ var Reconcile = (function () {
   // ══════════════════════════════════════════════════════════
 
   function _buildComparison(sysRows, feedbackRows) {
-    // Build lookup: siteId_lower + '|' + lineItem_lower → feedbackRow
     var feedMap = {};
     feedbackRows.forEach(function (fr) {
       var key = _matchKey(fr.siteId, fr.lineItem);
@@ -556,37 +638,118 @@ var Reconcile = (function () {
     });
 
     return sysRows.map(function (sysRow) {
-      var key    = _matchKey(
+      var key = _matchKey(
         String(sysRow.logical_site_id || ''),
         String(sysRow.line_item       || '')
       );
-      var fr     = feedMap[key];
+      var fr = feedMap[key];
 
       if (!fr) {
-        return { sysRow: sysRow, status: 'not_found', custStatus: '', ourQty: Number(sysRow.actual_quantity || 0) };
+        return {
+          sysRow: sysRow, status: 'not_found', custStatus: '',
+          ourRcQty: Number(sysRow.actual_quantity || 0)
+        };
       }
 
       var custStatus = String(fr.status || '').trim().toUpperCase();
-      var ourQty     = Number(sysRow.actual_quantity || 0);
+      var ourRcQty   = Number(sysRow.actual_quantity   || 0);
 
-      // REJ → rejected
       if (custStatus === 'REJ') {
-        return { sysRow: sysRow, status: 'rejected', custStatus: custStatus, ourQty: ourQty };
+        return { sysRow: sysRow, status: 'rejected', custStatus: custStatus, ourRcQty: ourRcQty };
       }
 
-      // Any other status (FAC, PAC, TOC, etc.) → accepted; check qty
-      var custQty    = fr.quantity !== '' && fr.quantity !== null ? Number(fr.quantity) : NaN;
-      var qtyChanged = !isNaN(custQty) && Math.abs(custQty - ourQty) > QTY_TOLERANCE;
+      // Accepted — compare RC quantities
+      var custRcQty   = fr.quantity !== '' && fr.quantity !== null ? Number(fr.quantity) : NaN;
+      var rcChanged   = !isNaN(custRcQty) && Math.abs(custRcQty - ourRcQty) > QTY_TOLERANCE;
+
+      if (!rcChanged) {
+        return {
+          sysRow: sysRow, status: 'accepted', custStatus: custStatus,
+          ourRcQty: ourRcQty, custRcQty: ourRcQty, rcChanged: false
+        };
+      }
+
+      // Reverse-engineer which (distance, absQty) pair produces custRcQty
+      var resolved = _resolveDistanceAndQty(custRcQty, sysRow);
 
       return {
-        sysRow:     sysRow,
-        status:     'accepted',
-        custStatus: custStatus,
-        ourQty:     ourQty,
-        custQty:    qtyChanged ? custQty : ourQty,
-        qtyChanged: qtyChanged
+        sysRow:       sysRow,
+        status:       'accepted',
+        custStatus:   custStatus,
+        ourRcQty:     ourRcQty,
+        custRcQty:    custRcQty,
+        rcChanged:    true,
+        // resolved fields to write back
+        newDistance:  resolved.distance,
+        newAbsQty:    resolved.absQty,
+        distChanged:  resolved.distance !== String(sysRow.distance || '').trim(),
+        absQtyChanged: Math.abs(resolved.absQty - Number(sysRow.absolute_quantity || 0)) > QTY_TOLERANCE
       };
     });
+  }
+
+  // ── Reverse-engineering: custRCQty → (distance, absolute_quantity) ──
+  //
+  // RC Quantity = absolute_quantity × distance_multiplier
+  //
+  // Step 1: Try every distance multiplier.  If custRCQty / multiplier is
+  //         a whole number, that multiplier is the right distance bracket
+  //         and the absolute_quantity = that whole number.
+  //
+  // Step 2: Among whole-number candidates, prefer the one where the
+  //         resulting absQty is closest to the row's current absQty.
+  //
+  // Step 3: If no multiplier gives a whole number, keep the row's current
+  //         distance bracket and compute absQty = custRCQty / currentMult.
+  //
+  // Returns { distance: string, absQty: number }
+
+  function _resolveDistanceAndQty(custRcQty, sysRow) {
+    var distMults    = (typeof Pricing !== 'undefined' && Pricing.getAllDistanceMults)
+                       ? Pricing.getAllDistanceMults()
+                       : [];
+
+    var currentDist  = String(sysRow.distance || '').trim();
+    var currentAbsQty = Number(sysRow.absolute_quantity || 0);
+
+    // Current multiplier (fallback to 1 if distance not found)
+    var currentMult  = (typeof Pricing !== 'undefined' && Pricing.getDistanceMultiplier)
+                       ? Pricing.getDistanceMultiplier(currentDist)
+                       : 1;
+
+    // Look for a multiplier that produces a whole-number absolute quantity
+    var integerCandidates = [];
+    distMults.forEach(function (dm) {
+      var implied = custRcQty / dm.multiplier;
+      var rounded = Math.round(implied);
+      if (Math.abs(implied - rounded) < QTY_TOLERANCE) {
+        integerCandidates.push({
+          distance: dm.range,
+          absQty:   rounded,
+          delta:    Math.abs(rounded - currentAbsQty)
+        });
+      }
+    });
+
+    if (integerCandidates.length) {
+      // Pick the candidate whose absolute qty is closest to the current one
+      integerCandidates.sort(function (a, b) { return a.delta - b.delta; });
+      return {
+        distance: integerCandidates[0].distance,
+        absQty:   integerCandidates[0].absQty
+      };
+    }
+
+    // No whole-number result — keep current distance, compute fractional absQty
+    var newAbsQty = currentMult > 0
+      ? _round4(custRcQty / currentMult)
+      : custRcQty;
+
+    return { distance: currentDist, absQty: newAbsQty };
+  }
+
+  function _round4(n) {
+    return Math.round(n * 10000) / 10000;
   }
 
   function _matchKey(siteId, lineItem) {
@@ -600,15 +763,27 @@ var Reconcile = (function () {
   // File parsing
   // ══════════════════════════════════════════════════════════
 
-  function _parseFeedbackFile(file, submNum, callback) {
+  // Accepts either a File object (old callers) or a FileReader onload event
+  // (new path — handleFile now owns the FileReader for progress tracking).
+  function _parseFeedbackFile(fileOrEvent, submNum, callback) {
+    // If called with a FileReader onload event, parse directly from the buffer
+    if (fileOrEvent && fileOrEvent.target && fileOrEvent.target.result) {
+      _doParse(fileOrEvent.target.result, submNum, callback);
+      return;
+    }
+    // Legacy path: called with a File object — read it here
     var reader = new FileReader();
     reader.onerror = function () {
       callback('Could not read the file. Make sure it is a valid Excel or CSV file.');
     };
-    reader.onload = function (e) {
+    reader.onload = function (e) { _doParse(e.target.result, submNum, callback); };
+    reader.readAsArrayBuffer(fileOrEvent);
+  }
+
+  function _doParse(buffer, submNum, callback) {
       try {
         var XLSX     = window.XLSX;
-        var data     = new Uint8Array(e.target.result);
+        var data     = new Uint8Array(buffer);
         var workbook = XLSX.read(data, { type: 'array' });
 
         // Find the target sheet
@@ -684,8 +859,6 @@ var Reconcile = (function () {
       } catch (err) {
         callback('Failed to parse the file: ' + err.message);
       }
-    };
-    reader.readAsArrayBuffer(file);
   }
 
   function _findSheetName(names, pattern) {
@@ -1005,8 +1178,20 @@ var Reconcile = (function () {
         'color:var(--color-success,#2a7a4a);padding:4px 10px;',
         'background:rgba(42,122,74,0.08);}',
 
+      // Progress bar
+      '.rc-parse-area{margin-top:14px;}',
+      '.rc-prog-label-row{display:flex;align-items:center;justify-content:space-between;',
+        'margin-bottom:5px;}',
+      '.rc-prog-label{font-family:var(--font-mono,monospace);font-size:10px;',
+        'letter-spacing:0.1em;text-transform:uppercase;color:var(--text-secondary,#5a6a80);}',
+      '.rc-prog-pct{font-family:var(--font-mono,monospace);font-size:10px;font-weight:700;',
+        'color:var(--accent,#c9973a);}',
+      '.rc-prog-track{height:6px;background:var(--border,#d0d7e2);overflow:hidden;}',
+      '.rc-prog-bar{height:100%;width:0%;background:var(--accent,#c9973a);',
+        'transition:width 0.2s ease,background 0.3s ease;}',
+
       '.rc-parse-msg{font-family:var(--font-body,sans-serif);font-size:12px;',
-        'padding:8px 12px;margin-top:12px;}',
+        'padding:8px 12px;margin-top:10px;}',
       '.rc-parse-msg--ok{background:rgba(42,122,74,0.08);color:var(--color-success,#2a7a4a);}',
       '.rc-parse-msg--error{background:rgba(192,57,43,0.08);color:var(--color-error,#c0392b);}',
       '.rc-parse-msg--info{background:rgba(201,151,58,0.10);color:var(--accent,#c9973a);}',
@@ -1040,7 +1225,15 @@ var Reconcile = (function () {
       '.rc-table td{padding:7px 10px;border-bottom:1px solid var(--border,#d0d7e2);',
         'vertical-align:middle;}',
       '.rc-td-mono{font-family:var(--font-mono,monospace);font-size:11px;}',
-      '.rc-td-desc{max-width:260px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}',
+      '.rc-td-desc{max-width:220px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}',
+      '.rc-td-changes{min-width:180px;}',
+      '.rc-change-item{display:block;white-space:nowrap;margin-bottom:2px;}',
+      '.rc-change-lbl{font-family:var(--font-display,sans-serif);font-size:9px;',
+        'font-weight:700;letter-spacing:0.1em;text-transform:uppercase;',
+        'color:var(--text-secondary,#5a6a80);margin-right:3px;}',
+      '.rc-th-note{font-family:var(--font-body,sans-serif);font-weight:400;',
+        'font-size:9px;text-transform:none;letter-spacing:0;',
+        'color:var(--text-secondary,#5a6a80);}',
 
       // Row states
       '.rc-row--rej td{background:rgba(192,57,43,0.04);}',

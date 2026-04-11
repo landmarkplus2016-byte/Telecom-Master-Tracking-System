@@ -111,6 +111,7 @@ var Pricing = (function () {
       (configData.distanceMultipliers || []).forEach(function (d) {
         if (!d.range) return;
         _distMults.push({
+          range:       String(d.range).trim(),
           range_lower: String(d.range).trim().toLowerCase(),
           multiplier:  parseFloat(d.multiplier) || 1
         });
@@ -122,10 +123,10 @@ var Pricing = (function () {
     // Values match the dropdown options and project spec exactly.
     if (!_distMults.length) {
       _distMults = [
-        { range_lower: '0km - 100km',   multiplier: 1    },
-        { range_lower: '100km - 400km', multiplier: 1.1  },
-        { range_lower: '400km - 800km', multiplier: 1.2  },
-        { range_lower: '> 800km',       multiplier: 1.25 }
+        { range: '0Km - 100Km',   range_lower: '0km - 100km',   multiplier: 1    },
+        { range: '100Km - 400Km', range_lower: '100km - 400km', multiplier: 1.1  },
+        { range: '400Km - 800Km', range_lower: '400km - 800km', multiplier: 1.2  },
+        { range: '> 800Km',       range_lower: '> 800km',       multiplier: 1.25 }
       ];
     }
 
@@ -358,6 +359,19 @@ var Pricing = (function () {
 
   // ── Expose ────────────────────────────────────────────────
 
+  /**
+   * Return all distance multiplier entries as
+   * [{ range, multiplier }] — range is the original display string
+   * (e.g. "100Km - 400Km") suitable for writing back to the sheet.
+   * Sorted by multiplier ascending so callers can iterate smallest → largest.
+   */
+  function getAllDistanceMults() {
+    return _distMults
+      .slice()
+      .sort(function (a, b) { return a.multiplier - b.multiplier; })
+      .map(function (d) { return { range: d.range, multiplier: d.multiplier }; });
+  }
+
   return {
     init:                   init,
     isReady:                isReady,
@@ -365,6 +379,7 @@ var Pricing = (function () {
     lookupPrice:            lookupPrice,
     getContractorSplit:     getContractorSplit,
     getDistanceMultiplier:  getDistanceMultiplier,
+    getAllDistanceMults:     getAllDistanceMults,
     calculateTotals:        calculateTotals,
     getIndicator:           getIndicator
   };
