@@ -84,6 +84,12 @@
         // Init grid AFTER dropdowns are loaded so column sources are set
         Grid.init(role, name);
 
+        // Wire reconciliation panel — invoicing + manager only
+        if (typeof Reconcile !== 'undefined') {
+          Reconcile.init(role, name);
+          Reconcile.wireToolbarButton();
+        }
+
         // Start presence heartbeat — fires immediately then every 30 s.
         // Must come after Grid.init so the logout button (inserted by
         // _renderHeader) already exists in #presence-bar when the first
