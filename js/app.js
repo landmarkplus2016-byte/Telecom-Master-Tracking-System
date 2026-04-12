@@ -84,6 +84,11 @@
         // Init grid AFTER dropdowns are loaded so column sources are set
         Grid.init(role, name);
 
+        // Wire export panel — all roles
+        if (typeof Export !== 'undefined') {
+          Export.init(role, name);
+        }
+
         // Wire reconciliation panel — invoicing + manager only
         if (typeof Reconcile !== 'undefined') {
           Reconcile.init(role, name);

@@ -1429,6 +1429,31 @@ var Grid = (function () {
 
   // ── Expose ────────────────────────────────────────────────
 
+  /**
+   * Returns data for Excel export.
+   *   allRows      — full _data array (role-filtered by server)
+   *   filteredRows — rows currently visible in HOT (honours active column filters)
+   *   columns      — visible column definitions for current role
+   * Called by js/export.js.
+   */
+  function getExportData() {
+    var filteredRows = [];
+    if (_hot) {
+      var count = _hot.countRows();
+      for (var i = 0; i < count; i++) {
+        var physIdx = _hot.toPhysicalRow(i);
+        if (physIdx >= 0 && _data[physIdx]) filteredRows.push(_data[physIdx]);
+      }
+    } else {
+      filteredRows = _data.slice();
+    }
+    return {
+      allRows:      _data.slice(),
+      filteredRows: filteredRows,
+      columns:      _visibleCols.slice(),
+    };
+  }
+
   return {
     init:            init,
     loadData:        loadData,
@@ -1436,6 +1461,7 @@ var Grid = (function () {
     applyDelta:      applyDelta,
     highlightChange: highlightChange,
     updateRowIndex:  updateRowIndex,
+    getExportData:   getExportData,
   };
 
 }());
