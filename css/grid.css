@@ -3,10 +3,10 @@
    Telecom Coordinator Tracking App
    ============================================================ */
 
-/* ── Row number headers ──────────────────────────────────── */
-/* White text on navy background, no white box or border.    */
+/* ── Row number + corner headers — navy matching col headers */
+/* grid.js also targets .rowHeader; grid.css wins via higher   */
+/* specificity on .ht_clone_left th for the left clone.        */
 
-/* All th cells in the left clone (row headers) */
 .ht_clone_left th,
 .ht_clone_top_left_corner th {
   background-color: var(--bg-navy) !important;
@@ -28,3 +28,40 @@
 .ht_clone_left th .relative {
   background: transparent !important;
 }
+
+/* ── Column header — gold accent bottom border ───────────── */
+/* Thin gold line separates the navy header row from the      */
+/* white data area — sharp, finished look.                    */
+/* More specific than grid.js's .handsontable th rule so it   */
+/* wins on border-bottom even though grid.js injects later.   */
+.handsontable thead th {
+  border-bottom: 2px solid rgba(201, 151, 58, 0.55) !important;
+}
+
+/* The frozen corner cell sits above row headers — keep it    */
+/* consistent with the column header gold line.               */
+.ht_clone_top_left_corner thead th {
+  border-bottom: 2px solid rgba(201, 151, 58, 0.55) !important;
+}
+
+/* ── Zebra striping — even data rows ────────────────────── */
+/* Alternating cool tint makes wide rows far easier to scan.  */
+/* :not() exclusions ensure semantic state classes (locked,   */
+/* error, changed, readonly) always override the stripe.      */
+/* Specificity here is intentionally high so it beats the     */
+/* base .handsontable td rule from grid.js, while the         */
+/* semantic class-based rules in grid.js (e.g. td.row-locked) */
+/* still win because they are excluded here via :not().       */
+.handsontable .htCore tbody tr:nth-child(even) td:not(.row-locked):not(.cell-jc-error):not(.row-changed):not(.cell-readonly) {
+  background-color: #f0f5fc !important;
+}
+
+/* Even rows, read-only variant — slightly deeper tint keeps  */
+/* the readonly cue visible against the zebra background.     */
+/* This rule is less specific than the one above so it only   */
+/* applies when the td doesn't also match the exclusions.     */
+/* (readonly cells are excluded from the rule above, so this  */
+/* separate rule picks them up on even rows only.)            */
+/* Note: grid.js injects later so its td.cell-readonly rule   */
+/* also applies; whichever has higher specificity wins.       */
+/* We rely on semantic state rules from grid.js for odd rows. */

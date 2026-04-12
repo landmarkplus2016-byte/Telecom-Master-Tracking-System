@@ -297,6 +297,9 @@ var Grid = (function () {
     // Add Row — all roles
     buttons.push('<button class="tb-btn tb-btn--primary" id="tb-add-row">+ New Row</button>');
 
+    // Filter — all roles (wired by js/filters.js after init)
+    buttons.push('<button class="tb-btn" id="tb-filter">&#9660; Filter</button>');
+
     // Refresh — all roles (replaced by delta sync in Stage 3)
     buttons.push('<button class="tb-btn" id="tb-refresh">&#8635; Refresh</button>');
 
@@ -1345,17 +1348,18 @@ var Grid = (function () {
         'font-size: 11px;',
         'letter-spacing: 0.12em;',
         'text-transform: uppercase;',
-        'background: rgba(255,255,255,0.08);',
+        'background: rgba(255,255,255,0.11);',
         'color: var(--text-on-navy);',
-        'border: 1px solid rgba(255,255,255,0.15);',
+        'border: 1px solid rgba(255,255,255,0.22);',
         'cursor: pointer;',
-        'transition: background 0.15s, border-color 0.15s;',
+        'transition: background 0.15s, border-color 0.15s, color 0.15s;',
         'white-space: nowrap;',
       '}',
 
       '.tb-btn:hover {',
-        'background: rgba(255,255,255,0.16);',
-        'border-color: rgba(255,255,255,0.28);',
+        'background: rgba(255,255,255,0.22);',
+        'border-color: rgba(255,255,255,0.38);',
+        'color: #ffffff;',
       '}',
 
       '.tb-btn--primary {',
@@ -1405,13 +1409,13 @@ var Grid = (function () {
         'white-space: nowrap !important;',
       '}',
 
-      // Row number headers
+      // Row number headers — navy to match column headers
       '.handsontable .rowHeader {',
-        'background: #f5f7fa !important;',
-        'color: var(--text-secondary) !important;',
+        'background: var(--bg-navy) !important;',
+        'color: var(--text-muted-navy) !important;',
         'font-family: var(--font-mono) !important;',
         'font-size: 10px !important;',
-        'border-color: var(--border) !important;',
+        'border-color: var(--border-navy) !important;',
       '}',
 
       // Data cells — no wrap so rows stay compact like Excel
@@ -1426,9 +1430,9 @@ var Grid = (function () {
         'text-overflow: ellipsis;',
       '}',
 
-      // Read-only cells — very subtle background tint
+      // Read-only cells — slightly distinct tint so non-editable columns are clear
       '.handsontable td.cell-readonly {',
-        'background: #f8f9fb !important;',
+        'background: #edf1f8 !important;',
         'color: var(--text-secondary) !important;',
       '}',
 
