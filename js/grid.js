@@ -297,9 +297,6 @@ var Grid = (function () {
     // Add Row — all roles
     buttons.push('<button class="tb-btn tb-btn--primary" id="tb-add-row">+ New Row</button>');
 
-    // Filter — all roles (wired in js/filters.js)
-    buttons.push('<button class="tb-btn" id="tb-filter">&#9660; Filter</button>');
-
     // Refresh — all roles (replaced by delta sync in Stage 3)
     buttons.push('<button class="tb-btn" id="tb-refresh">&#8635; Refresh</button>');
 

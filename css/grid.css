@@ -4,33 +4,27 @@
    ============================================================ */
 
 /* ── Row number headers ──────────────────────────────────── */
-/* Remove the default white box; match the app's navy background. */
+/* White text on navy background, no white box or border.    */
 
-.handsontable .rowHeader,
-.handsontable th:first-child,
-.handsontable .ht_clone_left th {
-  background: var(--bg-navy) !important;
+/* All th cells in the left clone (row headers) */
+.ht_clone_left th,
+.ht_clone_top_left_corner th {
+  background-color: var(--bg-navy) !important;
   color: var(--text-on-navy) !important;
-  border-right-color: var(--border-navy) !important;
-  border-bottom-color: var(--border-navy) !important;
+  border-color: var(--border-navy) !important;
   font-family: var(--font-mono);
   font-size: 10px;
-  letter-spacing: 0.06em;
+  letter-spacing: 0.05em;
 }
 
-/* Corner cell (top-left, above row headers) */
-.handsontable .ht_clone_top_left_corner th,
-.handsontable .ht_clone_left thead th {
-  background: var(--bg-navy) !important;
-  color: var(--text-on-navy) !important;
-  border-right-color: var(--border-navy) !important;
-  border-bottom-color: var(--border-navy) !important;
+/* Selected row header highlight */
+.ht_clone_left th.ht__highlight,
+.ht_clone_left th.ht__active_highlight {
+  background-color: rgba(255,255,255,0.14) !important;
+  color: #ffffff !important;
 }
 
-/* Remove white background on selected row header */
-.handsontable .ht_clone_left .htNoFrame + th,
-.handsontable .ht_clone_left th.ht__highlight,
-.handsontable .ht_clone_left th.ht__active_highlight {
-  background: rgba(255, 255, 255, 0.12) !important;
-  color: var(--text-on-navy) !important;
+/* Remove the inner span box that HOT wraps the row number in */
+.ht_clone_left th .relative {
+  background: transparent !important;
 }
