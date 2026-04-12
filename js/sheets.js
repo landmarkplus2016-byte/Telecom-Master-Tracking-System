@@ -816,6 +816,23 @@ var Sheets = (function () {
     );
   }
 
+  // ── Public: Restore a row from Deleted tab (manager only) ──
+  //
+  // deletedRowIndex — 1-based row index in the Deleted tab.
+  // On success, returns { success:true, row } where row is the
+  // restored row object with its new _row_index in the Data tab.
+  //
+  // callback({ success, row })
+  // callback({ success:false, error })
+
+  function restoreRow(deletedRowIndex, callback) {
+    _post(
+      { action: 'restoreRow', deletedRowIndex: deletedRowIndex },
+      { isColdStartCandidate: false, label: 'Restoring record' },
+      callback
+    );
+  }
+
   // ── Public: Clear all data (manager only) ────────────────
   //
   // Wipes Data + Deleted tabs server-side. Client reloads after.
@@ -846,6 +863,7 @@ var Sheets = (function () {
     softDeleteRow:   softDeleteRow,
     getDeletedRows:  getDeletedRows,
     hardDeleteRow:   hardDeleteRow,
+    restoreRow:      restoreRow,
     clearAllData:    clearAllData,
   };
 

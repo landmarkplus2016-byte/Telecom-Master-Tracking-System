@@ -15,9 +15,9 @@
 //   Manager     — can delete any row, view Deleted tab, Clear All Data
 //
 // Depends on:
-//   Sheets.softDeleteRow / getDeletedRows / hardDeleteRow / clearAllData
-//   Offline.removeRow
-//   Grid.removeRow
+//   Sheets.softDeleteRow / getDeletedRows / hardDeleteRow / restoreRow / clearAllData
+//   Offline.removeRow / storeRows
+//   Grid.removeRow / applyDelta
 // ============================================================
 
 var Delete = (function () {
@@ -311,7 +311,12 @@ var Delete = (function () {
             '<td>' + _esc(row.coordinator_name || '\u2014') + '</td>',
             '<td>' + _esc(row.deleted_by || '\u2014') + '</td>',
             '<td>' + _esc(dateStr) + '</td>',
-            '<td>',
+            '<td class="mgr-row-actions">',
+              '<button class="mgr-restore-btn"',
+                ' data-idx="' + _esc(String(row._deleted_row_index)) + '"',
+                ' data-id="'  + _esc(row.id || '') + '">',
+                'Restore',
+              '</button>',
               '<button class="mgr-hard-del-btn"',
                 ' data-idx="' + _esc(String(row._deleted_row_index)) + '"',
                 ' data-id="'  + _esc(row.id || '') + '">',
@@ -325,6 +330,15 @@ var Delete = (function () {
       html.push('</tbody></table></div>');
       content.innerHTML = html.join('');
 
+      // Wire restore buttons
+      content.querySelectorAll('.mgr-restore-btn').forEach(function (btn) {
+        btn.addEventListener('click', function () {
+          var idx   = Number(btn.getAttribute('data-idx'));
+          var rowId = btn.getAttribute('data-id');
+          _performRestore(idx, rowId, btn);
+        });
+      });
+
       // Wire hard-delete buttons
       content.querySelectorAll('.mgr-hard-del-btn').forEach(function (btn) {
         btn.addEventListener('click', function () {
@@ -333,6 +347,50 @@ var Delete = (function () {
           _performHardDelete(idx, rowId, btn);
         });
       });
+    });
+  }
+
+  function _performRestore(deletedRowIndex, rowId, btn) {
+    var tr = btn.closest('tr');
+
+    // Disable both action buttons in this row while restoring
+    if (tr) {
+      tr.querySelectorAll('button').forEach(function (b) { b.disabled = true; });
+    }
+    btn.textContent = 'Restoring\u2026';
+
+    Sheets.restoreRow(deletedRowIndex, function (result) {
+      if (!result.success) {
+        // Re-enable buttons on failure
+        if (tr) {
+          tr.querySelectorAll('button').forEach(function (b) { b.disabled = false; });
+        }
+        btn.textContent = 'Restore';
+        _toast(result.error || 'Could not restore. Try again.', 'error');
+        return;
+      }
+
+      // Add the restored row to IDB + grid
+      if (result.row) {
+        Offline.storeRows([result.row]);
+        Grid.applyDelta([result.row]);
+      }
+
+      // Fade + remove the table row
+      if (tr) {
+        tr.style.transition = 'opacity 0.2s';
+        tr.style.opacity    = '0';
+        setTimeout(function () {
+          tr.remove();
+          var tbody = document.querySelector('#mgr-deleted-content tbody');
+          if (tbody && !tbody.querySelector('tr')) {
+            var content = document.getElementById('mgr-deleted-content');
+            if (content) content.innerHTML = '<div class="mgr-empty">No deleted records.</div>';
+          }
+        }, 200);
+      }
+
+      _toast('Record restored and added back to the grid.', 'success');
     });
   }
 
@@ -744,6 +802,32 @@ var Delete = (function () {
         'font-size: 11px;',
         'color: var(--text-secondary);',
       '}',
+
+      '.mgr-row-actions {',
+        'display: flex;',
+        'gap: 6px;',
+        'align-items: center;',
+      '}',
+
+      '.mgr-restore-btn {',
+        'height: 26px;',
+        'padding: 0 10px;',
+        'background: transparent;',
+        'border: 1px solid rgba(46, 160, 100, 0.45);',
+        'font-family: var(--font-display);',
+        'font-weight: 600;',
+        'font-size: 9px;',
+        'letter-spacing: 0.12em;',
+        'text-transform: uppercase;',
+        'color: #2ea064;',
+        'cursor: pointer;',
+        'transition: background 0.15s;',
+        'white-space: nowrap;',
+      '}',
+      '.mgr-restore-btn:hover:not(:disabled) {',
+        'background: rgba(46,160,100,0.08);',
+      '}',
+      '.mgr-restore-btn:disabled { opacity: 0.4; cursor: not-allowed; }',
 
       '.mgr-hard-del-btn {',
         'height: 26px;',

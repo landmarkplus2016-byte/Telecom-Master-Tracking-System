@@ -225,6 +225,9 @@ function handleRequest(e) {
       case 'hardDelete':
         return jsonResponse(hardDeleteRow(Number(params.deletedRowIndex), authResult.role));
 
+      case 'restoreRow':
+        return jsonResponse(restoreRow(Number(params.deletedRowIndex), authResult.role));
+
       case 'clearAllData':
         return jsonResponse(clearAllData(authResult.role));
 
@@ -1254,6 +1257,76 @@ function hardDeleteRow(deletedRowIndex, role) {
     return { success: true };
   } catch (e) {
     return { success: false, error: 'Could not permanently delete: ' + e.message };
+  }
+}
+
+
+// ── Restore a row from Deleted tab (manager only) ────────────
+//
+// Reads the deleted row, strips deleted_by/deleted_at metadata,
+// appends the original data back to the Data tab with a fresh
+// last_modified timestamp, then removes it from the Deleted tab.
+// Returns the restored row object so the client can add it to IDB + grid.
+
+function restoreRow(deletedRowIndex, role) {
+  if (role !== 'manager') {
+    return { success: false, error: 'Manager only.' };
+  }
+  if (!deletedRowIndex || deletedRowIndex < 2) {
+    return { success: false, error: 'Invalid row index.' };
+  }
+
+  var ss        = SpreadsheetApp.getActiveSpreadsheet();
+  var delSheet  = ss.getSheetByName(SHEET_DELETED);
+  if (!delSheet) return { success: false, error: 'Deleted tab not found.' };
+
+  var dataSheet = ss.getSheetByName(SHEET_DATA);
+  if (!dataSheet) return { success: false, error: 'Data tab not found.' };
+
+  try {
+    // Read Deleted tab headers + the specific row
+    var delTotalCols = delSheet.getLastColumn();
+    var delHeaders   = delSheet.getRange(1, 1, 1, delTotalCols).getValues()[0]
+                         .map(function (h) { return String(h).trim(); });
+    var delValues    = delSheet.getRange(deletedRowIndex, 1, 1, delTotalCols).getValues()[0];
+
+    // Map field values, excluding the two metadata columns
+    var valMap = {};
+    for (var i = 0; i < delHeaders.length; i++) {
+      if (delHeaders[i] !== 'deleted_by' && delHeaders[i] !== 'deleted_at') {
+        valMap[delHeaders[i]] = delValues[i];
+      }
+    }
+
+    // Build restored row in Data tab's column order
+    var dataTotalCols = dataSheet.getLastColumn();
+    var dataHeaders   = dataSheet.getRange(1, 1, 1, dataTotalCols).getValues()[0]
+                          .map(function (h) { return String(h).trim(); });
+    var restoredRow   = dataHeaders.map(function (h) {
+      return valMap.hasOwnProperty(h) ? valMap[h] : '';
+    });
+
+    // Stamp a fresh last_modified so delta sync picks it up
+    var lmIdx = dataHeaders.indexOf('last_modified');
+    if (lmIdx >= 0) restoredRow[lmIdx] = Date.now();
+
+    // Append to Data tab — gets a new row index at the bottom
+    dataSheet.appendRow(restoredRow);
+    var newRowIndex = dataSheet.getLastRow();
+
+    // Remove from Deleted tab now that it's back in Data
+    delSheet.deleteRow(Number(deletedRowIndex));
+
+    // Build the row object to send back to the client
+    var rowObj = {};
+    for (var j = 0; j < dataHeaders.length; j++) {
+      rowObj[dataHeaders[j]] = formatCell(restoredRow[j]);
+    }
+    rowObj._row_index = newRowIndex;
+
+    return { success: true, row: rowObj };
+  } catch (e) {
+    return { success: false, error: 'Could not restore: ' + e.message };
   }
 }
 
