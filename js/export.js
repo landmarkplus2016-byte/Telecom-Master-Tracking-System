@@ -426,12 +426,7 @@ var Export = (function () {
 
   function _numFmt(col) {
     if (col.type === 'date') return 'DD-MMM-YYYY';
-    if (col.type === 'numeric') {
-      var pat = (col.numericFormat && col.numericFormat.pattern) || '';
-      // Currency columns: $0,0.00 → Excel #,##0.00 with $ prefix
-      if (pat.indexOf('$') !== -1) return '"$"#,##0.00';
-      return '#,##0.00';
-    }
+    if (col.type === 'numeric') return '#,##0.00';
     return null;
   }
 

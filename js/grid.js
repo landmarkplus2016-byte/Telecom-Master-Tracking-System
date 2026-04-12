@@ -51,8 +51,8 @@ var Grid = (function () {
     { key: 'contractor',                 label: 'Contractor',                width: 130, type: 'dropdown' },
     { key: 'engineer_name',              label: "Engineer's Name",           width: 140, type: 'text'     },
     { key: 'line_item',                  label: 'Line Item',                 width: 260, type: 'dropdown' },
-    { key: 'new_price',                  label: 'New Price',                 width: 110, type: 'numeric',  numericFormat: { pattern: '$0,0.00' }, readOnly: ['coordinator', 'invoicing'] },
-    { key: 'new_total_price',            label: 'New Total Price',           width: 130, type: 'numeric',  numericFormat: { pattern: '$0,0.00' }, readOnly: ['coordinator', 'invoicing'] },
+    { key: 'new_price',                  label: 'New Price (EGP)',           width: 120, type: 'numeric',  numericFormat: { pattern: '0,0.00' }, readOnly: ['coordinator', 'invoicing'] },
+    { key: 'new_total_price',            label: 'New Total Price (EGP)',     width: 150, type: 'numeric',  numericFormat: { pattern: '0,0.00' }, readOnly: ['coordinator', 'invoicing'] },
     { key: 'comments',                   label: 'Comments',                  width: 200, type: 'text'     },
     { key: 'status',                     label: 'Status',                    width: 110, type: 'dropdown' },
     { key: 'task_date',                  label: 'Task Date',                 width: 110, type: 'date',     dateFormat: 'DD-MMM-YYYY' },
@@ -77,8 +77,8 @@ var Grid = (function () {
     { key: 'po_number',                  label: 'PO Number',                 width: 115, type: 'text',     roles: ['invoicing', 'manager'] },
     { key: 'vf_invoice_num',             label: 'VF Invoice #',              width: 120, type: 'text',     roles: ['invoicing', 'manager'] },
     { key: 'first_receiving_date',       label: '1st Receiving Date',        width: 145, type: 'date',     dateFormat: 'DD-MMM-YYYY', roles: ['invoicing', 'manager'] },
-    { key: 'lmp_portion',                label: 'LMP Portion',               width: 115, type: 'numeric',  numericFormat: { pattern: '$0,0.00' }, readOnly: ['coordinator', 'invoicing'], roles: ['invoicing', 'manager'] },
-    { key: 'contractor_portion',         label: 'Contractor Portion',        width: 145, type: 'numeric',  numericFormat: { pattern: '$0,0.00' }, readOnly: ['coordinator', 'invoicing'], roles: ['invoicing', 'manager'] },
+    { key: 'lmp_portion',                label: 'LMP Portion (EGP)',         width: 130, type: 'numeric',  numericFormat: { pattern: '0,0.00' }, readOnly: ['coordinator', 'invoicing'], roles: ['invoicing', 'manager'] },
+    { key: 'contractor_portion',         label: 'Contractor Portion (EGP)',  width: 165, type: 'numeric',  numericFormat: { pattern: '0,0.00' }, readOnly: ['coordinator', 'invoicing'], roles: ['invoicing', 'manager'] },
     { key: 'sent_to_cost_control',       label: 'Sent to Cost Control',      width: 155, type: 'date',     dateFormat: 'DD-MMM-YYYY', correctFormat: true, roles: ['invoicing', 'manager'] },
     { key: 'received_from_cc',           label: 'Received from CC',          width: 145, type: 'date',     dateFormat: 'DD-MMM-YYYY', correctFormat: true, roles: ['invoicing', 'manager'] },
     { key: 'contractor_invoice_num',     label: 'Contractor Invoice #',      width: 155, type: 'text',     roles: ['invoicing', 'manager'] },
@@ -132,7 +132,7 @@ var Grid = (function () {
     // These can accumulate in IDB from previous fetches before the server-side
     // fix, and should never appear in the grid.
     var filtered = (rows || []).filter(function (r) {
-      return r && (r.id || r.job_code || r.coordinator_name || r.task_name);
+      return r && (r.id || r.job_code || r.task_name);
     });
     console.log('[grid.js] loadData() — rows:', filtered.length, '(filtered from', (rows || []).length + ')');
     _allData = filtered.slice();   // store complete copy for global search
@@ -534,6 +534,7 @@ var Grid = (function () {
       autoWrapRow:        false,
       autoWrapCol:        false,
       rowHeights:         24,
+      minSpareRows:       0,
       licenseKey:         'non-commercial-and-evaluation',
 
       // Freeze first 2 columns (ID + Logical Site ID)

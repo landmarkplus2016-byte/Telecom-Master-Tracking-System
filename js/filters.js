@@ -169,16 +169,10 @@ var Filters = (function () {
   }
 
   function _onFilterBtnClick() {
-    var hasAnyFilter = _hotFilterCount > 0 || !!_searchTerm.trim();
-
-    if (hasAnyFilter) {
-      // If filters are active, clicking clears everything
-      _clearAllAndReset();
-    } else {
-      // No filters active — focus the search bar for quick access
-      var input = document.getElementById('gs-input');
-      if (input) input.focus();
-    }
+    // Clicking the Filter button always focuses the search bar —
+    // use the "Clear All" button in the filter panel to clear filters.
+    var input = document.getElementById('gs-input');
+    if (input) input.focus();
   }
 
   function _clearAllAndReset() {
@@ -300,16 +294,13 @@ var Filters = (function () {
     var btn = document.getElementById('tb-filter');
     if (!btn) return;
 
-    var term          = _searchTerm.trim();
-    var total         = _hotFilterCount + (term ? 1 : 0);
-    var hasAny        = total > 0;
+    var term  = _searchTerm.trim();
+    var total = _hotFilterCount + (term ? 1 : 0);
 
-    if (hasAny) {
-      btn.classList.add('tb-btn--active');
-      btn.textContent = '\u25BC Filter (' + total + ')';
-      btn.title       = 'Click to clear all filters';
+    if (total > 0) {
+      btn.innerHTML = '&#9660; Filter (' + total + ')';
+      btn.title     = 'Filters active — use Clear All to remove';
     } else {
-      btn.classList.remove('tb-btn--active');
       btn.innerHTML = '&#9660; Filter';
       btn.title     = 'Filter rows';
     }
@@ -398,16 +389,6 @@ var Filters = (function () {
         'transition: color 0.15s;',
       '}',
       '.gs-clear:hover { color: var(--text-on-navy); }',
-
-      // ── Active filter button state ─────────────────────────
-      '.tb-btn--active {',
-        'background: var(--accent) !important;',
-        'color: #fff !important;',
-        'border-color: var(--accent) !important;',
-      '}',
-      '.tb-btn--active:hover {',
-        'background: var(--accent-bright) !important;',
-      '}',
 
       // ── Filter status panel ───────────────────────────────
       '#filter-panel {',

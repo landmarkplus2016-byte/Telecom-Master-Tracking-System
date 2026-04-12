@@ -1,0 +1,36 @@
+/* ============================================================
+   grid.css — Handsontable overrides
+   Telecom Coordinator Tracking App
+   ============================================================ */
+
+/* ── Row number headers ──────────────────────────────────── */
+/* Remove the default white box; match the app's navy background. */
+
+.handsontable .rowHeader,
+.handsontable th:first-child,
+.handsontable .ht_clone_left th {
+  background: var(--bg-navy) !important;
+  color: var(--text-on-navy) !important;
+  border-right-color: var(--border-navy) !important;
+  border-bottom-color: var(--border-navy) !important;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: 0.06em;
+}
+
+/* Corner cell (top-left, above row headers) */
+.handsontable .ht_clone_top_left_corner th,
+.handsontable .ht_clone_left thead th {
+  background: var(--bg-navy) !important;
+  color: var(--text-on-navy) !important;
+  border-right-color: var(--border-navy) !important;
+  border-bottom-color: var(--border-navy) !important;
+}
+
+/* Remove white background on selected row header */
+.handsontable .ht_clone_left .htNoFrame + th,
+.handsontable .ht_clone_left th.ht__highlight,
+.handsontable .ht_clone_left th.ht__active_highlight {
+  background: rgba(255, 255, 255, 0.12) !important;
+  color: var(--text-on-navy) !important;
+}
