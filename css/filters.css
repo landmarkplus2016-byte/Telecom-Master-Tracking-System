@@ -1,0 +1,23 @@
+/* ============================================================
+   filters.css — Filter panel and global search bar
+   Telecom Coordinator Tracking App
+   ============================================================
+   All filter component styles are injected programmatically
+   by js/filters.js so they are available at the right time.
+   This file reserves the #filter-panel layout slot so the
+   app body flexes correctly whether or not the panel is open.
+   ============================================================ */
+
+/* ── Filter panel layout slot ────────────────────────────── */
+/* The panel sits between the header and the grid container.  */
+/* js/filters.js shows/hides it by toggling [hidden].        */
+
+#filter-panel {
+  flex-shrink: 0;
+  overflow: hidden;
+}
+
+/* When hidden, collapse height entirely — no gap in layout */
+#filter-panel[hidden] {
+  display: none !important;
+}

@@ -92,7 +92,9 @@ var Grid = (function () {
   var _role            = null;
   var _userName        = null;
   var _visibleCols     = [];     // filtered COLUMNS for current role
-  var _data            = [];     // current grid data (array of row objects)
+  var _data            = [];     // rows currently loaded into HOT (may be global-search-filtered)
+  var _allData         = [];     // complete unfiltered dataset — global search filters against this
+  var _globalSearchFn  = null;   // predicate fn for global search, or null when inactive
   var _savePending     = {};     // rowIdx → setTimeout handle (debounce per row)
   var _dropdownSources = {};     // { field_key: [option, ...] } — merged from DROPDOWN_DEFAULTS + Config
   var _lockedRows      = {};     // { physicalRowIndex: true } — built in loadData for coordinator role
@@ -133,7 +135,8 @@ var Grid = (function () {
       return r && (r.id || r.job_code || r.coordinator_name || r.task_name);
     });
     console.log('[grid.js] loadData() — rows:', filtered.length, '(filtered from', (rows || []).length + ')');
-    _data = filtered;
+    _allData = filtered.slice();   // store complete copy for global search
+    _data    = _globalSearchFn ? _allData.filter(_globalSearchFn) : filtered;
 
     // Build locked-row index for coordinator role.
     // Keyed by _data array index (= HOT physical row index) so lock checks
@@ -164,7 +167,7 @@ var Grid = (function () {
     // Converting to arrays causes empty cells because HOT uses the key
     // mapping, not array index, when columns[i].data is set.
     _hot.loadData(_data);
-    _updateRowCount(_data.length);
+    _updateRowCount(_hot ? _hot.countRows() : _data.length);
 
     // Apply pricing calculations and indicators to every loaded row.
     // Pricing must be initialised (Pricing.init called) before loadData.
@@ -294,6 +297,9 @@ var Grid = (function () {
     // Add Row — all roles
     buttons.push('<button class="tb-btn tb-btn--primary" id="tb-add-row">+ New Row</button>');
 
+    // Filter — all roles (wired in js/filters.js)
+    buttons.push('<button class="tb-btn" id="tb-filter">&#9660; Filter</button>');
+
     // Refresh — all roles (replaced by delta sync in Stage 3)
     buttons.push('<button class="tb-btn" id="tb-refresh">&#8635; Refresh</button>');
 
@@ -395,10 +401,11 @@ var Grid = (function () {
     });
     if (!rows.length) return;
 
-    // Build a fast lookup: _row_index → _data array position
+    // Build fast lookup from _allData (the complete dataset, not the filtered view).
+    // This ensures rows hidden by an active global search are still updated correctly.
     var idxMap = {};
-    for (var i = 0; i < _data.length; i++) {
-      if (_data[i] && _data[i]._row_index) idxMap[_data[i]._row_index] = i;
+    for (var i = 0; i < _allData.length; i++) {
+      if (_allData[i] && _allData[i]._row_index) idxMap[_allData[i]._row_index] = i;
     }
 
     var hasNewRows = false;
@@ -406,38 +413,35 @@ var Grid = (function () {
     rows.forEach(function (incoming) {
       var dataPos = idxMap[incoming._row_index];
       if (dataPos !== undefined) {
-        // Existing row — merge all incoming keys into the live data object.
-        // HOT is bound to _data by reference, so in-place mutation is reflected
-        // immediately on the next _hot.render() call.
-        var target = _data[dataPos];
+        // Existing row — update in _allData in-place.
+        // When no global search is active, _data shares the same object references
+        // as _allData, so HOT sees the update on the next render() call.
+        var target = _allData[dataPos];
         Object.keys(incoming).forEach(function (k) {
           target[k] = incoming[k];
         });
-        // Normalize date fields in the merged row (same logic as loadData)
         _visibleCols.forEach(function (col) {
           if (col.type === 'date' && target[col.key]) {
             target[col.key] = _normalizeDate(target[col.key]);
           }
         });
-        // Recompute pricing for the updated row
-        if (typeof Pricing !== 'undefined' && Pricing.isReady()) {
-          _applyPricing(dataPos);
-        }
       } else {
-        // New row — normalize dates and append
+        // New row — normalize dates and append to _allData
         _visibleCols.forEach(function (col) {
           if (col.type === 'date' && incoming[col.key]) {
             incoming[col.key] = _normalizeDate(incoming[col.key]);
           }
         });
-        var newPos = _data.push(incoming) - 1;
-        idxMap[incoming._row_index] = newPos;
+        _allData.push(incoming);
         hasNewRows = true;
-        if (typeof Pricing !== 'undefined' && Pricing.isReady()) {
-          _applyPricing(newPos);
-        }
       }
     });
+
+    // When new rows arrive, re-derive _data from _allData to include (or exclude)
+    // them correctly under any active global search filter.
+    if (hasNewRows) {
+      _data = _globalSearchFn ? _allData.filter(_globalSearchFn) : _allData.slice();
+    }
 
     // Rebuild locked-row index for coordinator (lock status may have changed)
     if (_role === 'coordinator') {
@@ -447,13 +451,24 @@ var Grid = (function () {
       });
     }
 
-    // Re-tell HOT about the data so new rows are counted correctly
+    // Apply pricing to affected rows in the visible (_data) array
+    if (typeof Pricing !== 'undefined' && Pricing.isReady()) {
+      var pricingMap = {};
+      for (var pi = 0; pi < _data.length; pi++) {
+        if (_data[pi] && _data[pi]._row_index) pricingMap[String(_data[pi]._row_index)] = pi;
+      }
+      rows.forEach(function (r) {
+        var pIdx = pricingMap[String(r._row_index)];
+        if (pIdx !== undefined) _applyPricing(pIdx);
+      });
+    }
+
     if (hasNewRows) {
       _hot.loadData(_data);
     } else {
       _hot.render();
     }
-    _updateRowCount(_data.length);
+    _updateRowCount(_hot ? _hot.countRows() : _data.length);
   }
 
   // ── Handsontable init ─────────────────────────────────────
@@ -523,6 +538,20 @@ var Grid = (function () {
 
       // Freeze first 2 columns (ID + Logical Site ID)
       fixedColumnsLeft:   2,
+
+      // ── Column filters ────────────────────────────────────
+      // filters: true enables the Filters plugin.
+      // dropdownMenu renders the ▼ arrow on every column header that opens
+      // an Excel-style popover with condition + value filter options.
+      filters:            true,
+      dropdownMenu:       ['filter_by_condition', '---------', 'filter_by_value', '---------', 'filter_action_bar'],
+
+      afterFilter: function (conditionsStack) {
+        _updateRowCount(_hot ? _hot.countRows() : _data.length);
+        if (typeof Filters !== 'undefined') {
+          Filters.onColumnFilterChanged(conditionsStack || []);
+        }
+      },
 
       // After a cell is edited, save the row to Apps Script.
       // Debounced per row — prevents duplicate appends when the user
@@ -1035,9 +1064,17 @@ var Grid = (function () {
 
   // ── Status bar ────────────────────────────────────────────
 
-  function _updateRowCount(count) {
+  function _updateRowCount(visibleCount) {
     var el = document.getElementById('row-count');
-    if (el) el.textContent = count + (count === 1 ? ' row' : ' rows');
+    if (!el) return;
+    var total = _allData.length;
+    // Show "X of Y rows" when a filter is hiding some rows; plain "Y rows" otherwise.
+    if (total && visibleCount < total) {
+      el.textContent = visibleCount + ' of ' + total + ' rows';
+    } else {
+      var n = total || visibleCount;
+      el.textContent = n + (n === 1 ? ' row' : ' rows');
+    }
   }
 
   // ── JC uniqueness helpers ─────────────────────────────────
@@ -1450,7 +1487,19 @@ var Grid = (function () {
    */
   function removeRow(physicalRowIndex) {
     if (!_hot || physicalRowIndex < 0 || physicalRowIndex >= _data.length) return;
-    _data.splice(physicalRowIndex, 1);
+
+    var removedRow = _data.splice(physicalRowIndex, 1)[0];
+
+    // Also remove from _allData so the complete dataset stays in sync
+    if (removedRow) {
+      for (var i = 0; i < _allData.length; i++) {
+        if (_allData[i] === removedRow ||
+            (removedRow._row_index && _allData[i] && _allData[i]._row_index === removedRow._row_index)) {
+          _allData.splice(i, 1);
+          break;
+        }
+      }
+    }
 
     // Rebuild lock index since physical positions shifted
     if (_role === 'coordinator') {
@@ -1461,7 +1510,52 @@ var Grid = (function () {
     }
 
     _hot.loadData(_data);
-    _updateRowCount(_data.length);
+    _updateRowCount(_hot ? _hot.countRows() : _data.length);
+  }
+
+  /**
+   * Apply a global search predicate that pre-filters _allData before
+   * HOT's own column filters run. Pass null to clear global search.
+   * Called by js/filters.js on every search-input change.
+   */
+  function applyGlobalSearch(fn) {
+    _globalSearchFn = fn || null;
+    _data = _globalSearchFn ? _allData.filter(_globalSearchFn) : _allData.slice();
+
+    if (_role === 'coordinator') {
+      _lockedRows = {};
+      _data.forEach(function (row, idx) {
+        if (row && row._locked) _lockedRows[idx] = true;
+      });
+    }
+
+    if (_hot) {
+      _hot.loadData(_data);
+      _updateRowCount(_hot ? _hot.countRows() : _data.length);
+    }
+  }
+
+  /**
+   * Clear both global search and HOT column filters in one call.
+   * Called by the filter panel's "Clear All" button via js/filters.js.
+   */
+  function clearAllFilters() {
+    if (_hot) {
+      var filtersPlugin = _hot.getPlugin('filters');
+      if (filtersPlugin) {
+        filtersPlugin.clearConditions();
+        filtersPlugin.filter();
+      }
+    }
+    applyGlobalSearch(null);
+  }
+
+  /**
+   * Returns the visible column definitions for the current role.
+   * Called by js/filters.js to know which columns to search across.
+   */
+  function getVisibleColumns() {
+    return _visibleCols.slice();
   }
 
   /**
@@ -1499,15 +1593,18 @@ var Grid = (function () {
   }
 
   return {
-    init:            init,
-    loadData:        loadData,
-    applyDropdowns:  applyDropdowns,
-    applyDelta:      applyDelta,
-    highlightChange: highlightChange,
-    updateRowIndex:  updateRowIndex,
-    removeRow:       removeRow,
-    refresh:         refresh,
-    getExportData:   getExportData,
+    init:              init,
+    loadData:          loadData,
+    applyDropdowns:    applyDropdowns,
+    applyDelta:        applyDelta,
+    highlightChange:   highlightChange,
+    updateRowIndex:    updateRowIndex,
+    removeRow:         removeRow,
+    refresh:           refresh,
+    getExportData:     getExportData,
+    applyGlobalSearch: applyGlobalSearch,
+    clearAllFilters:   clearAllFilters,
+    getVisibleColumns: getVisibleColumns,
   };
 
 }());

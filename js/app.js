@@ -84,6 +84,11 @@
         // Init grid AFTER dropdowns are loaded so column sources are set
         Grid.init(role, name);
 
+        // Wire filters — global search + column filter status panel
+        if (typeof Filters !== 'undefined') {
+          Filters.init(role, name);
+        }
+
         // Wire delete workflow + manager panel — all roles
         if (typeof Delete !== 'undefined') {
           Delete.init(role, name);
