@@ -84,6 +84,11 @@
         // Init grid AFTER dropdowns are loaded so column sources are set
         Grid.init(role, name);
 
+        // Wire delete workflow + manager panel — all roles
+        if (typeof Delete !== 'undefined') {
+          Delete.init(role, name);
+        }
+
         // Wire export panel — all roles
         if (typeof Export !== 'undefined') {
           Export.init(role, name);

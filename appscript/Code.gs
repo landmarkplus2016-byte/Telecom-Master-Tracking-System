@@ -214,6 +214,20 @@ function handleRequest(e) {
           authResult.name
         ));
 
+      case 'softDelete':
+        return jsonResponse(softDeleteRow(
+          Number(params.rowIndex), authResult.role, authResult.name
+        ));
+
+      case 'getDeletedRows':
+        return jsonResponse(getDeletedRows(authResult.role));
+
+      case 'hardDelete':
+        return jsonResponse(hardDeleteRow(Number(params.deletedRowIndex), authResult.role));
+
+      case 'clearAllData':
+        return jsonResponse(clearAllData(authResult.role));
+
       default:
         return jsonResponse({ success: false, error: 'Unknown action: ' + params.action });
     }
@@ -1104,6 +1118,185 @@ function _ensurePresenceSheet(ss) {
   sheet = ss.insertSheet(SHEET_PRESENCE);
   sheet.getRange(1, 1, 1, 2).setValues([['name', 'last_seen']]);
   return sheet;
+}
+
+
+// ── Soft delete row ───────────────────────────────────────────
+//
+// Copies the row to the Deleted tab, then clears its cells in the
+// Data tab. Clearing (not deleting the physical row) preserves all
+// other rows' _row_index values so no index drift occurs.
+// Empty rows are already filtered by getRows() via hasMeaningfulData.
+//
+// Coordinator: own rows only, only if unlocked.
+// Manager: any row.
+// Invoicing: blocked.
+//
+// Returns: { success, deletedRowIndex } | { success:false, error }
+
+function softDeleteRow(rowIndex, role, coordinatorName) {
+  if (role === 'invoicing') {
+    return { success: false, error: 'Invoicing team cannot delete rows.' };
+  }
+
+  var ss        = SpreadsheetApp.getActiveSpreadsheet();
+  var dataSheet = ss.getSheetByName(SHEET_DATA);
+  if (!dataSheet || !rowIndex || rowIndex < 2) {
+    return { success: false, error: 'Invalid row.' };
+  }
+
+  var totalCols   = dataSheet.getLastColumn();
+  var headerRow   = dataSheet.getRange(1, 1, 1, totalCols).getValues()[0]
+                      .map(function (h) { return String(h).trim(); });
+  var colMap      = buildColumnIndexMap(headerRow);
+  var rowRange    = dataSheet.getRange(rowIndex, 1, 1, totalCols);
+  var rowValues   = rowRange.getValues()[0];
+
+  // ── Permission checks ───────────────────────────────────────
+  if (role === 'coordinator') {
+    var ownerIdx = colMap['coordinator_name'];
+    if (ownerIdx !== undefined) {
+      var owner = String(rowValues[ownerIdx] || '').trim().toLowerCase();
+      var self  = String(coordinatorName || '').trim().toLowerCase();
+      if (owner && owner !== self) {
+        return { success: false, error: 'You can only delete your own rows.' };
+      }
+    }
+    var acceptIdx = colMap['acceptance_status'];
+    if (acceptIdx !== undefined && String(rowValues[acceptIdx] || '').trim()) {
+      return { success: false, error: 'Locked rows cannot be deleted. Contact the invoicing team.' };
+    }
+  }
+
+  // ── Copy to Deleted tab ─────────────────────────────────────
+  var nowMs    = Date.now();
+  var delSheet = _ensureDeletedSheet(ss, headerRow);
+
+  // Append data row + two metadata columns: deleted_by and deleted_at
+  var deletedRow = rowValues.concat([String(coordinatorName || role || ''), nowMs]);
+  delSheet.appendRow(deletedRow);
+  var deletedRowIndex = delSheet.getLastRow();
+
+  // ── Clear the row in Data tab ───────────────────────────────
+  // clearContent() preserves the physical row so all other _row_index
+  // values remain valid. getRows() filters empty rows via hasMeaningfulData.
+  rowRange.clearContent();
+
+  return { success: true, deletedRowIndex: deletedRowIndex };
+}
+
+function _ensureDeletedSheet(ss, dataHeaders) {
+  var sheet = ss.getSheetByName(SHEET_DELETED);
+  if (!sheet) {
+    sheet = ss.insertSheet(SHEET_DELETED);
+  }
+  if (sheet.getLastRow() === 0) {
+    var hdr = (dataHeaders || ALL_COLUMNS).concat(['deleted_by', 'deleted_at']);
+    sheet.getRange(1, 1, 1, hdr.length).setValues([hdr]);
+  }
+  return sheet;
+}
+
+
+// ── Get deleted rows (manager only) ──────────────────────────
+
+function getDeletedRows(role) {
+  if (role !== 'manager') {
+    return { success: false, error: 'Manager only.' };
+  }
+
+  var ss    = SpreadsheetApp.getActiveSpreadsheet();
+  var sheet = ss.getSheetByName(SHEET_DELETED);
+  if (!sheet || sheet.getLastRow() < 2) {
+    return { success: true, rows: [] };
+  }
+
+  var data    = sheet.getDataRange().getValues();
+  var headers = data[0].map(function (h) { return String(h).trim(); });
+  var rows    = [];
+
+  for (var i = 1; i < data.length; i++) {
+    var row     = data[i];
+    var isEmpty = row.every(function (c) { return c === '' || c === null || c === undefined; });
+    if (isEmpty) continue;
+
+    var rowObj = {};
+    for (var j = 0; j < headers.length; j++) {
+      rowObj[headers[j]] = formatCell(row[j]);
+    }
+    rowObj._deleted_row_index = i + 1; // 1-based row in Deleted tab
+    rows.push(rowObj);
+  }
+
+  return { success: true, rows: rows };
+}
+
+
+// ── Hard delete from Deleted tab (manager only) ───────────────
+//
+// Permanently removes a row from the Deleted tab.
+// This is the only true permanent delete in the system.
+
+function hardDeleteRow(deletedRowIndex, role) {
+  if (role !== 'manager') {
+    return { success: false, error: 'Manager only.' };
+  }
+  if (!deletedRowIndex || deletedRowIndex < 2) {
+    return { success: false, error: 'Invalid row index.' };
+  }
+
+  var ss    = SpreadsheetApp.getActiveSpreadsheet();
+  var sheet = ss.getSheetByName(SHEET_DELETED);
+  if (!sheet) return { success: false, error: 'Deleted tab not found.' };
+
+  try {
+    sheet.deleteRow(Number(deletedRowIndex));
+    return { success: true };
+  } catch (e) {
+    return { success: false, error: 'Could not permanently delete: ' + e.message };
+  }
+}
+
+
+// ── Clear all data (manager only) ─────────────────────────────
+//
+// Clears all records from Data and Deleted tabs.
+// Config tab, Presence, and structure are preserved.
+// Client reloads fresh after this call.
+
+function clearAllData(role) {
+  if (role !== 'manager') {
+    return { success: false, error: 'Manager only.' };
+  }
+
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+
+  // Clear Data tab body rows (keep header row)
+  var dataSheet = ss.getSheetByName(SHEET_DATA);
+  if (dataSheet && dataSheet.getLastRow() > 1) {
+    dataSheet.getRange(2, 1, dataSheet.getLastRow() - 1, dataSheet.getLastColumn())
+             .clearContent();
+  }
+
+  // Clear Deleted tab entirely (re-created fresh on next soft delete)
+  var delSheet = ss.getSheetByName(SHEET_DELETED);
+  if (delSheet) delSheet.clearContents();
+
+  // Clear Conflicts tab body (keep header)
+  var conflictsSheet = ss.getSheetByName(SHEET_CONFLICTS);
+  if (conflictsSheet && conflictsSheet.getLastRow() > 1) {
+    conflictsSheet.getRange(2, 1, conflictsSheet.getLastRow() - 1, conflictsSheet.getLastColumn())
+                  .clearContent();
+  }
+
+  // Clear Changes tab body (keep header)
+  var changesSheet = ss.getSheetByName(SHEET_CHANGES);
+  if (changesSheet && changesSheet.getLastRow() > 1) {
+    changesSheet.getRange(2, 1, changesSheet.getLastRow() - 1, changesSheet.getLastColumn())
+                .clearContent();
+  }
+
+  return { success: true };
 }
 
 

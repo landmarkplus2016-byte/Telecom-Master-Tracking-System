@@ -1686,11 +1686,30 @@ var Offline = (function () {
 
   // ── Expose ────────────────────────────────────────────────
 
+  // ── Public: remove a single row from IDB ─────────────────
+  //
+  // Deletes the row whose _row_index matches the given value.
+  // Called by delete.js after a successful soft delete so the
+  // deleted row is not re-shown on next startup from cache.
+
+  function removeRow(rowIndex, cb) {
+    if (!_db || !rowIndex) { if (cb) cb(); return; }
+    try {
+      var tx  = _db.transaction([STORE_ROWS], 'readwrite');
+      var req = tx.objectStore(STORE_ROWS).delete(rowIndex);
+      req.onsuccess = function () { if (cb) cb(); };
+      req.onerror   = function () { if (cb) cb(); };
+    } catch (e) {
+      if (cb) cb();
+    }
+  }
+
   return {
     init:                 init,
     storeRows:            storeRows,
     replaceAllRows:       replaceAllRows,
     getAllRows:            getAllRows,
+    removeRow:            removeRow,
     queueSave:            queueSave,
     getLastSyncTime:      getLastSyncTime,
     setLastSyncTime:      setLastSyncTime,

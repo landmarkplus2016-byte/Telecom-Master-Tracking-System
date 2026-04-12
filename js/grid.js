@@ -1010,10 +1010,24 @@ var Grid = (function () {
       'cut':        {},
     };
 
-    // Delete only for coordinator (own rows) and manager
+    // Delete only for coordinator (own rows) and manager.
+    // Custom callback delegates to Delete.confirmDelete() instead of
+    // using HOT's native row removal — ensures the confirmation modal
+    // and soft-delete flow always run.
     if (_role === 'coordinator' || _role === 'manager') {
       items['separator2'] = Handsontable.plugins.ContextMenu.SEPARATOR;
-      items['remove_row'] = { name: 'Delete row' };
+      items['remove_row'] = {
+        name: 'Delete row',
+        callback: function (key, selection) {
+          if (!selection || !selection.length) return;
+          var visualRow = selection[0].start.row;
+          var physRow   = _hot.toPhysicalRow(visualRow);
+          if (physRow < 0 || physRow >= _data.length) return;
+          if (typeof Delete !== 'undefined') {
+            Delete.confirmDelete(_data[physRow], physRow);
+          }
+        }
+      };
     }
 
     return { items: items };
@@ -1430,6 +1444,36 @@ var Grid = (function () {
   // ── Expose ────────────────────────────────────────────────
 
   /**
+   * Immediately removes a row from the in-memory data and re-renders HOT.
+   * Called by delete.js after a confirmed soft delete.
+   * physicalRowIndex — index in the _data array (not the visual row).
+   */
+  function removeRow(physicalRowIndex) {
+    if (!_hot || physicalRowIndex < 0 || physicalRowIndex >= _data.length) return;
+    _data.splice(physicalRowIndex, 1);
+
+    // Rebuild lock index since physical positions shifted
+    if (_role === 'coordinator') {
+      _lockedRows = {};
+      _data.forEach(function (row, idx) {
+        if (row && row._locked) _lockedRows[idx] = true;
+      });
+    }
+
+    _hot.loadData(_data);
+    _updateRowCount(_data.length);
+  }
+
+  /**
+   * Full data refresh — re-fetches all rows from Apps Script,
+   * replaces IDB cache, and reloads the grid.
+   * Called by delete.js after Clear All Data.
+   */
+  function refresh() {
+    _refreshData(null);
+  }
+
+  /**
    * Returns data for Excel export.
    *   allRows      — full _data array (role-filtered by server)
    *   filteredRows — rows currently visible in HOT (honours active column filters)
@@ -1461,6 +1505,8 @@ var Grid = (function () {
     applyDelta:      applyDelta,
     highlightChange: highlightChange,
     updateRowIndex:  updateRowIndex,
+    removeRow:       removeRow,
+    refresh:         refresh,
     getExportData:   getExportData,
   };
 

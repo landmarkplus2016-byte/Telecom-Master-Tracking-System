@@ -772,6 +772,65 @@ var Sheets = (function () {
     document.head.appendChild(s);
   }());
 
+  // ── Public: Soft delete a row ────────────────────────────
+  //
+  // Moves the row from the Data tab to the Deleted tab (server-side).
+  // rowIndex — 1-based sheet row in the Data tab (_row_index).
+  //
+  // callback({ success, deletedRowIndex })
+  // callback({ success:false, error })
+
+  function softDeleteRow(rowIndex, callback) {
+    _post(
+      { action: 'softDelete', rowIndex: rowIndex },
+      { isColdStartCandidate: false, label: 'Deleting' },
+      callback
+    );
+  }
+
+  // ── Public: Get deleted rows (manager only) ──────────────
+  //
+  // callback({ success, rows })
+  // callback({ success:false, error })
+
+  function getDeletedRows(callback) {
+    _post(
+      { action: 'getDeletedRows' },
+      { isColdStartCandidate: false, label: 'Loading deleted records' },
+      callback
+    );
+  }
+
+  // ── Public: Hard delete from Deleted tab (manager only) ──
+  //
+  // deletedRowIndex — 1-based row index in the Deleted tab.
+  //
+  // callback({ success })
+  // callback({ success:false, error })
+
+  function hardDeleteRow(deletedRowIndex, callback) {
+    _post(
+      { action: 'hardDelete', deletedRowIndex: deletedRowIndex },
+      { isColdStartCandidate: false, label: 'Permanently deleting' },
+      callback
+    );
+  }
+
+  // ── Public: Clear all data (manager only) ────────────────
+  //
+  // Wipes Data + Deleted tabs server-side. Client reloads after.
+  //
+  // callback({ success })
+  // callback({ success:false, error })
+
+  function clearAllData(callback) {
+    _post(
+      { action: 'clearAllData' },
+      { isColdStartCandidate: false, label: 'Clearing all data' },
+      callback
+    );
+  }
+
   // ── Expose ────────────────────────────────────────────────
 
   return {
@@ -783,7 +842,11 @@ var Sheets = (function () {
     writeRow:        writeRow,
     fetchConflicts:  fetchConflicts,
     resolveConflict: resolveConflict,
-    startPresence:   startPresence
+    startPresence:   startPresence,
+    softDeleteRow:   softDeleteRow,
+    getDeletedRows:  getDeletedRows,
+    hardDeleteRow:   hardDeleteRow,
+    clearAllData:    clearAllData,
   };
 
 }());
