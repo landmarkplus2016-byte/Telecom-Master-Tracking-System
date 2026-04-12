@@ -99,6 +99,13 @@
           Export.init(role, name);
         }
 
+        // Wire backup system — all roles
+        // Injects "Backup Now" button, restores saved folder handle,
+        // and checks for any missed scheduled backups on startup.
+        if (typeof Backup !== 'undefined') {
+          Backup.init(role, name);
+        }
+
         // Wire reconciliation panel — invoicing + manager only
         if (typeof Reconcile !== 'undefined') {
           Reconcile.init(role, name);

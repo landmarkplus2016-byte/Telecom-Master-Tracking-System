@@ -438,6 +438,8 @@ var Offline = (function () {
           if (result.rowIndex) {
             _upsertRow(_mergeRowIndex(rowData, result.rowIndex));
           }
+          // Trigger per-save backup (backup_latest.json) after every online write
+          if (typeof Backup !== 'undefined') Backup.onSave();
           if (cb) cb(result);
           return;
         }
@@ -549,6 +551,8 @@ var Offline = (function () {
       _updateIndicator();
       _releaseDrainLock();
       console.log('[offline.js] Queue drained');
+      // Trigger per-save backup (backup_latest.json) once after full drain
+      if (typeof Backup !== 'undefined') Backup.onSave();
       return;
     }
 
