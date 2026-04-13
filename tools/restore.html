@@ -1,0 +1,1005 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Backup Restore — Telecom Tracker</title>
+
+  <!-- Fonts: same family as main app -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;600;700&family=Barlow:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+
+  <!-- xlsx-js-style: SheetJS fork with full cell styling support -->
+  <script src="https://cdn.jsdelivr.net/npm/xlsx-js-style@1.2.0/dist/xlsx.bundle.js"></script>
+
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --navy:         #1a2e4a;
+      --navy-deep:    #0f1e30;
+      --navy-mid:     #243d5c;
+      --border-navy:  #2a4060;
+      --gold:         #c9973a;
+      --gold-bright:  #e8b04a;
+      --gold-dim:     rgba(201, 151, 58, 0.12);
+      --gold-border:  rgba(201, 151, 58, 0.4);
+      --surface:      #ffffff;
+      --bg-light:     #f0f2f5;
+      --border:       #d0d7e2;
+      --text:         #1a2e4a;
+      --text-mid:     #5a6a80;
+      --text-mute:    #8fa5bf;
+      --success:      #2a7a4a;
+      --error:        #c0392b;
+      --font-disp:    'Barlow Condensed', sans-serif;
+      --font-body:    'Barlow', sans-serif;
+      --font-mono:    'JetBrains Mono', monospace;
+    }
+
+    html, body {
+      min-height: 100vh;
+      background: var(--navy-deep);
+      font-family: var(--font-body);
+      color: var(--text);
+    }
+
+    /* Dot-grid texture — matches main app loading screen */
+    body::before {
+      content: '';
+      position: fixed;
+      inset: 0;
+      background-image: radial-gradient(circle, rgba(255,255,255,0.06) 1px, transparent 1px);
+      background-size: 28px 28px;
+      pointer-events: none;
+      z-index: 0;
+    }
+
+    /* ── Page layout ───────────────────────────────────────── */
+
+    .page {
+      position: relative;
+      z-index: 1;
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      padding: 48px 20px;
+      gap: 28px;
+    }
+
+    /* ── Header ─────────────────────────────────────────────── */
+
+    .page-header {
+      text-align: center;
+    }
+
+    .eyebrow {
+      display: block;
+      font-family: var(--font-mono);
+      font-size: 9px;
+      letter-spacing: 0.26em;
+      text-transform: uppercase;
+      color: var(--gold);
+      opacity: 0.85;
+      margin-bottom: 10px;
+    }
+
+    .page-title {
+      font-family: var(--font-disp);
+      font-weight: 700;
+      font-size: 40px;
+      letter-spacing: 0.07em;
+      text-transform: uppercase;
+      color: #e8edf3;
+      line-height: 1;
+    }
+
+    .page-title span {
+      color: var(--gold);
+    }
+
+    .page-subtitle {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 12px;
+      margin-top: 10px;
+      font-family: var(--font-mono);
+      font-size: 9px;
+      letter-spacing: 0.2em;
+      text-transform: uppercase;
+      color: rgba(255,255,255,0.3);
+    }
+
+    .page-subtitle::before,
+    .page-subtitle::after {
+      content: '';
+      display: block;
+      width: 32px;
+      height: 1px;
+      background: var(--gold-border);
+    }
+
+    /* ── Card ────────────────────────────────────────────────── */
+
+    .card {
+      position: relative;
+      background: var(--surface);
+      width: 100%;
+      max-width: 540px;
+      box-shadow: 0 12px 48px rgba(0, 0, 0, 0.4);
+    }
+
+    /* Gold corner brackets — identical to main app loading-frame */
+    .card::before,
+    .card::after {
+      content: '';
+      position: absolute;
+      border-color: var(--gold);
+      border-style: solid;
+      width: 14px;
+      height: 14px;
+      transition: width 0.35s ease, height 0.35s ease, border-color 0.35s ease;
+      z-index: 2;
+    }
+    .card::before { top: -1px; left: -1px;  border-width: 2px 0 0 2px; }
+    .card::after  { bottom: -1px; right: -1px; border-width: 0 2px 2px 0; }
+
+    /* Second pair of corners via inner spans */
+    .card-corner-tr,
+    .card-corner-bl {
+      position: absolute;
+      border-color: var(--gold);
+      border-style: solid;
+      width: 14px;
+      height: 14px;
+      transition: width 0.35s ease, height 0.35s ease, border-color 0.35s ease;
+      z-index: 2;
+    }
+    .card-corner-tr { top: -1px; right: -1px; border-width: 2px 2px 0 0; }
+    .card-corner-bl { bottom: -1px; left: -1px;  border-width: 0 0 2px 2px; }
+
+    /* Corner flash on successful file load */
+    .card.is-ready::before,
+    .card.is-ready::after,
+    .card.is-ready .card-corner-tr,
+    .card.is-ready .card-corner-bl {
+      width: 28px;
+      height: 28px;
+      border-color: var(--gold-bright);
+    }
+
+    /* ── Drop zone ──────────────────────────────────────────── */
+
+    .drop-zone {
+      margin: 28px;
+      padding: 52px 40px 44px;
+      border: 2px dashed var(--border);
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 10px;
+      text-align: center;
+      cursor: pointer;
+      transition: border-color 0.2s ease, background 0.2s ease;
+      outline: none;
+    }
+
+    .drop-zone:hover {
+      border-color: var(--gold);
+      background: var(--gold-dim);
+    }
+
+    .drop-zone.drag-over {
+      border-color: var(--gold);
+      border-style: solid;
+      background: var(--gold-dim);
+    }
+
+    .drop-zone.drag-over .drop-icon {
+      transform: translateY(-6px) scale(1.1);
+    }
+
+    .drop-icon {
+      color: var(--gold);
+      transition: transform 0.25s ease;
+      margin-bottom: 2px;
+    }
+
+    .drop-title {
+      font-family: var(--font-disp);
+      font-weight: 600;
+      font-size: 22px;
+      letter-spacing: 0.03em;
+      color: var(--text);
+    }
+
+    .drop-sub {
+      font-family: var(--font-body);
+      font-size: 14px;
+      color: var(--text-mid);
+    }
+
+    .browse-link {
+      background: none;
+      border: none;
+      padding: 0;
+      color: var(--gold);
+      font-family: var(--font-body);
+      font-size: 14px;
+      cursor: pointer;
+      text-decoration: underline;
+      text-underline-offset: 2px;
+    }
+    .browse-link:hover { color: var(--gold-bright); }
+
+    .drop-hint {
+      font-family: var(--font-mono);
+      font-size: 9px;
+      letter-spacing: 0.12em;
+      color: var(--text-mute);
+      margin-top: 6px;
+    }
+
+    /* ── Status strip (parsing / error) ─────────────────────── */
+
+    .status-strip {
+      padding: 18px 28px;
+      font-family: var(--font-mono);
+      font-size: 11px;
+      letter-spacing: 0.1em;
+      text-align: center;
+      display: none;
+    }
+    .status-strip.is-visible     { display: block; }
+    .status-strip.is-parsing     { color: var(--text-mid); }
+    .status-strip.is-error       { color: var(--error); background: rgba(192,57,43,0.06); }
+
+    /* ── File-info panel ─────────────────────────────────────── */
+
+    .file-panel {
+      display: none;
+      padding: 28px 32px 32px;
+    }
+    .file-panel.is-visible { display: block; }
+
+    /* Success header */
+    .file-panel-head {
+      display: flex;
+      align-items: center;
+      gap: 14px;
+      padding-bottom: 20px;
+      border-bottom: 1px solid var(--border);
+      margin-bottom: 22px;
+    }
+
+    .check-circle {
+      width: 36px;
+      height: 36px;
+      border-radius: 50%;
+      background: var(--success);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      flex-shrink: 0;
+      animation: pop-in 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+    }
+
+    @keyframes pop-in {
+      from { transform: scale(0.4); opacity: 0; }
+      to   { transform: scale(1);   opacity: 1; }
+    }
+
+    .file-panel-name {
+      font-family: var(--font-mono);
+      font-size: 12px;
+      font-weight: 500;
+      color: var(--text);
+      word-break: break-all;
+      line-height: 1.4;
+    }
+
+    .file-panel-label {
+      font-family: var(--font-mono);
+      font-size: 9px;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+      color: var(--text-mute);
+      margin-top: 2px;
+    }
+
+    /* Metadata grid */
+    .meta-grid {
+      display: grid;
+      grid-template-columns: 80px 1fr;
+      row-gap: 10px;
+      column-gap: 16px;
+      margin-bottom: 26px;
+    }
+
+    .meta-key {
+      font-family: var(--font-mono);
+      font-size: 9px;
+      letter-spacing: 0.14em;
+      text-transform: uppercase;
+      color: var(--text-mute);
+      display: flex;
+      align-items: center;
+    }
+
+    .meta-val {
+      font-family: var(--font-mono);
+      font-size: 12px;
+      color: var(--text);
+      font-weight: 500;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .role-pill {
+      display: inline-block;
+      font-size: 8px;
+      letter-spacing: 0.16em;
+      text-transform: uppercase;
+      padding: 2px 8px;
+      border: 1px solid var(--gold-border);
+      color: var(--gold);
+      line-height: 1.6;
+    }
+
+    .sheet-badge {
+      display: inline-block;
+      font-size: 8px;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+      padding: 2px 7px;
+      background: var(--bg-light);
+      color: var(--text-mid);
+      border: 1px solid var(--border);
+      line-height: 1.6;
+    }
+
+    /* Download button */
+    .download-btn {
+      width: 100%;
+      height: 50px;
+      background: var(--gold);
+      color: var(--navy);
+      border: none;
+      font-family: var(--font-disp);
+      font-weight: 700;
+      font-size: 15px;
+      letter-spacing: 0.16em;
+      text-transform: uppercase;
+      cursor: pointer;
+      transition: background 0.15s ease;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 10px;
+      margin-bottom: 10px;
+    }
+    .download-btn:hover  { background: var(--gold-bright); }
+    .download-btn:active { background: var(--gold); }
+
+    /* Reset button */
+    .reset-btn {
+      width: 100%;
+      height: 36px;
+      background: transparent;
+      border: 1px solid var(--border);
+      color: var(--text-mid);
+      font-family: var(--font-body);
+      font-size: 13px;
+      cursor: pointer;
+      transition: border-color 0.15s, color 0.15s;
+    }
+    .reset-btn:hover { border-color: var(--text-mid); color: var(--text); }
+
+    /* ── Footer ──────────────────────────────────────────────── */
+
+    .page-footer {
+      font-family: var(--font-mono);
+      font-size: 9px;
+      letter-spacing: 0.16em;
+      text-transform: uppercase;
+      color: rgba(255, 255, 255, 0.22);
+      text-align: center;
+    }
+
+    /* ── Utilities ───────────────────────────────────────────── */
+    .u-hidden { display: none !important; }
+  </style>
+</head>
+
+<body>
+<div class="page">
+
+  <!-- ── Header ──────────────────────────────────────────────── -->
+  <header class="page-header">
+    <span class="eyebrow">Telecom Department</span>
+    <h1 class="page-title">Backup <span>Restore</span></h1>
+    <p class="page-subtitle">JSON to Excel</p>
+  </header>
+
+  <!-- ── Main card ───────────────────────────────────────────── -->
+  <main class="card" id="card" role="main">
+    <span class="card-corner-tr" aria-hidden="true"></span>
+    <span class="card-corner-bl" aria-hidden="true"></span>
+
+    <!-- Drop zone -->
+    <div class="drop-zone"
+         id="drop-zone"
+         role="button"
+         tabindex="0"
+         aria-label="Drop backup JSON file here or press Enter to browse">
+
+      <input type="file" id="file-input" accept=".json" hidden>
+
+      <!-- Document + arrow icon -->
+      <div class="drop-icon" aria-hidden="true">
+        <svg width="44" height="44" viewBox="0 0 44 44" fill="none" xmlns="http://www.w3.org/2000/svg">
+          <!-- Document body -->
+          <rect x="8" y="3" width="22" height="30" rx="2" stroke="currentColor" stroke-width="1.5" fill="none"/>
+          <!-- Folded corner -->
+          <path d="M22 3 L30 11" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+          <path d="M22 3 L22 11 L30 11" stroke="currentColor" stroke-width="1.5" fill="none"/>
+          <!-- Text lines -->
+          <path d="M13 17h12M13 21h12M13 25h8" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+          <!-- Download arrow (green) -->
+          <circle cx="35" cy="35" r="8" fill="#2a7a4a"/>
+          <path d="M35 30v8M31 35l4 4 4-4" stroke="white" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
+        </svg>
+      </div>
+
+      <p class="drop-title">Drop your backup JSON here</p>
+      <p class="drop-sub">or <button class="browse-link" id="browse-btn" type="button">browse files</button></p>
+      <p class="drop-hint">backup_YYYY-MM-DD_HHhmm.json &nbsp;·&nbsp; backup_latest.json</p>
+    </div>
+
+    <!-- Status strip: parsing or error -->
+    <div class="status-strip" id="status-strip" role="status" aria-live="polite"></div>
+
+    <!-- File info panel (shown after successful parse) -->
+    <div class="file-panel" id="file-panel">
+
+      <div class="file-panel-head">
+        <div class="check-circle" aria-hidden="true">
+          <svg width="18" height="18" viewBox="0 0 18 18" fill="none">
+            <path d="M4 9.5l3.5 3.5 6.5-7.5" stroke="white" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+          </svg>
+        </div>
+        <div>
+          <div class="file-panel-name" id="info-filename">backup.json</div>
+          <div class="file-panel-label">File loaded — ready to export</div>
+        </div>
+      </div>
+
+      <div class="meta-grid">
+        <span class="meta-key">Exported</span>
+        <span class="meta-val" id="info-exported">—</span>
+
+        <span class="meta-key">User</span>
+        <span class="meta-val" id="info-user">—</span>
+
+        <span class="meta-key">Role</span>
+        <span class="meta-val" id="info-role">—</span>
+
+        <span class="meta-key">Rows</span>
+        <span class="meta-val" id="info-rows">—</span>
+
+        <span class="meta-key u-hidden" id="deleted-key">Deleted</span>
+        <span class="meta-val u-hidden" id="info-deleted">—</span>
+
+        <span class="meta-key">Sheets</span>
+        <span class="meta-val" id="info-sheets">—</span>
+      </div>
+
+      <button class="download-btn" id="download-btn" type="button">
+        <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+          <path d="M8 2v9M4 8l4 4 4-4" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+          <path d="M2 14h12" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+        </svg>
+        Download Excel File
+      </button>
+      <button class="reset-btn" id="reset-btn" type="button">Load another file</button>
+    </div>
+  </main>
+
+  <!-- ── Footer ──────────────────────────────────────────────── -->
+  <footer class="page-footer">
+    Works in any browser &nbsp;·&nbsp; All processing is local &nbsp;·&nbsp; No data is uploaded
+  </footer>
+
+</div><!-- /.page -->
+
+
+<script>
+(function () {
+  'use strict';
+
+  // ============================================================
+  // Column definitions — mirrors js/grid.js exactly.
+  // wch = Excel column width in character units (grid.js px ÷ 7)
+  // type: 'text' | 'number' | 'currency' | 'date'
+  // ============================================================
+
+  var COLUMNS = [
+    { key: 'id',                         label: 'ID #',                       wch: 26, type: 'text'     },
+    { key: 'job_code',                   label: 'Job Code',                   wch: 16, type: 'text'     },
+    { key: 'tx_rf',                      label: 'TX/RF',                      wch: 10, type: 'text'     },
+    { key: 'vendor',                     label: 'Vendor',                     wch: 18, type: 'text'     },
+    { key: 'physical_site_id',           label: 'Physical Site ID',           wch: 18, type: 'text'     },
+    { key: 'logical_site_id',            label: 'Logical Site ID',            wch: 18, type: 'text'     },
+    { key: 'site_option',                label: 'Site Option',                wch: 14, type: 'text'     },
+    { key: 'facing',                     label: 'Facing',                     wch: 12, type: 'text'     },
+    { key: 'region',                     label: 'Region',                     wch: 14, type: 'text'     },
+    { key: 'sub_region',                 label: 'Sub Region',                 wch: 15, type: 'text'     },
+    { key: 'distance',                   label: 'Distance',                   wch: 18, type: 'text'     },
+    { key: 'absolute_quantity',          label: 'Quantity',                   wch: 14, type: 'number'   },
+    { key: 'actual_quantity',            label: 'RC Quantity',                wch: 14, type: 'number'   },
+    { key: 'general_stream',             label: 'General Stream',             wch: 18, type: 'text'     },
+    { key: 'task_name',                  label: 'Task Name',                  wch: 30, type: 'text'     },
+    { key: 'contractor',                 label: 'Contractor',                 wch: 18, type: 'text'     },
+    { key: 'engineer_name',              label: "Engineer's Name",            wch: 20, type: 'text'     },
+    { key: 'line_item',                  label: 'Line Item',                  wch: 38, type: 'text'     },
+    { key: 'new_price',                  label: 'New Price (EGP)',            wch: 18, type: 'currency'  },
+    { key: 'new_total_price',            label: 'New Total Price (EGP)',      wch: 23, type: 'currency'  },
+    { key: 'comments',                   label: 'Comments',                   wch: 40, type: 'text'     },
+    { key: 'status',                     label: 'Status',                     wch: 16, type: 'text'     },
+    { key: 'task_date',                  label: 'Task Date',                  wch: 14, type: 'date'     },
+    { key: 'vf_task_owner',              label: 'VF Task Owner',              wch: 18, type: 'text'     },
+    { key: 'prq',                        label: 'PRQ',                        wch: 12, type: 'text'     },
+    { key: 'coordinator_name',           label: 'Coordinator',                wch: 18, type: 'text'     },
+    { key: 'acceptance_status',          label: 'Acceptance Status',          wch: 20, type: 'text'     },
+    { key: 'fac_date',                   label: 'FAC Date',                   wch: 14, type: 'date'     },
+    { key: 'certificate_num',            label: 'Certificate #',              wch: 16, type: 'text'     },
+    { key: 'acceptance_week',            label: 'Acceptance Week',            wch: 18, type: 'text'     },
+    { key: 'tsr_sub',                    label: 'TSR Sub#',                   wch: 14, type: 'text'     },
+    { key: 'po_status',                  label: 'PO Status',                  wch: 14, type: 'text'     },
+    { key: 'po_number',                  label: 'PO Number',                  wch: 16, type: 'text'     },
+    { key: 'vf_invoice_num',             label: 'VF Invoice #',               wch: 16, type: 'text'     },
+    { key: 'first_receiving_date',       label: '1st Receiving Date',         wch: 20, type: 'date'     },
+    { key: 'lmp_portion',                label: 'LMP Portion (EGP)',          wch: 19, type: 'currency'  },
+    { key: 'contractor_portion',         label: 'Contractor Portion (EGP)',   wch: 25, type: 'currency'  },
+    { key: 'sent_to_cost_control',       label: 'Sent to Cost Control',       wch: 22, type: 'date'     },
+    { key: 'received_from_cc',           label: 'Received from CC',           wch: 20, type: 'date'     },
+    { key: 'contractor_invoice_num',     label: 'Contractor Invoice #',       wch: 22, type: 'text'     },
+    { key: 'vf_invoice_submission_date', label: 'VF Invoice Submission Date', wch: 28, type: 'date'     },
+    { key: 'cash_received_date',         label: 'Cash Received Date',         wch: 22, type: 'date'     }
+  ];
+
+  // Extra columns appended to deleted-records sheet
+  var DELETED_EXTRA = [
+    { key: 'deleted_by', label: 'Deleted By', wch: 18, type: 'text' },
+    { key: 'deleted_at', label: 'Deleted At', wch: 22, type: 'text' }
+  ];
+
+  // ── Shared style constants ────────────────────────────────────
+  var C_NAVY   = '1A2E4A';
+  var C_GOLD   = 'C9973A';
+  var C_WHITE  = 'FFFFFF';
+  var C_EVEN   = 'FFFFFF';
+  var C_ODD    = 'F0F2F5';
+  var C_BORDER = 'D0D7E2';
+
+  var S_HDR = {
+    font: { name: 'Arial', sz: 10, bold: true, color: { rgb: C_WHITE } },
+    fill: { patternType: 'solid', fgColor: { rgb: C_NAVY } },
+    alignment: { horizontal: 'center', vertical: 'center', wrapText: false },
+    border: {
+      bottom: { style: 'medium', color: { rgb: C_GOLD   } },
+      right:  { style: 'thin',   color: { rgb: '2A4060' } }
+    }
+  };
+
+  var S_HDR_NUM = {
+    font: { name: 'Arial', sz: 10, bold: true, color: { rgb: C_WHITE } },
+    fill: { patternType: 'solid', fgColor: { rgb: C_NAVY } },
+    alignment: { horizontal: 'right', vertical: 'center', wrapText: false },
+    border: {
+      bottom: { style: 'medium', color: { rgb: C_GOLD   } },
+      right:  { style: 'thin',   color: { rgb: '2A4060' } }
+    }
+  };
+
+  function makeDataStyle(bg) {
+    return {
+      font:      { name: 'Arial', sz: 10, color: { rgb: C_NAVY } },
+      fill:      { patternType: 'solid', fgColor: { rgb: bg } },
+      alignment: { horizontal: 'left', vertical: 'center' },
+      border: {
+        bottom: { style: 'thin', color: { rgb: C_BORDER } },
+        right:  { style: 'thin', color: { rgb: C_BORDER } }
+      }
+    };
+  }
+
+  function makeNumStyle(bg, fmt) {
+    return {
+      font:      { name: 'Arial', sz: 10, color: { rgb: C_NAVY } },
+      fill:      { patternType: 'solid', fgColor: { rgb: bg } },
+      alignment: { horizontal: 'right', vertical: 'center' },
+      numFmt:    fmt,
+      border: {
+        bottom: { style: 'thin', color: { rgb: C_BORDER } },
+        right:  { style: 'thin', color: { rgb: C_BORDER } }
+      }
+    };
+  }
+
+  // Pre-build style objects — reused for every cell of each type
+  var S_EVEN     = makeDataStyle(C_EVEN);
+  var S_ODD      = makeDataStyle(C_ODD);
+  var S_CUR_EVEN = makeNumStyle(C_EVEN, '#,##0.00');
+  var S_CUR_ODD  = makeNumStyle(C_ODD,  '#,##0.00');
+  var S_NUM_EVEN = makeNumStyle(C_EVEN, '#,##0.##');
+  var S_NUM_ODD  = makeNumStyle(C_ODD,  '#,##0.##');
+
+  // ── DOM references ────────────────────────────────────────────
+  var card        = document.getElementById('card');
+  var dropZone    = document.getElementById('drop-zone');
+  var fileInput   = document.getElementById('file-input');
+  var browseBtn   = document.getElementById('browse-btn');
+  var statusStrip = document.getElementById('status-strip');
+  var filePanel   = document.getElementById('file-panel');
+  var downloadBtn = document.getElementById('download-btn');
+  var resetBtn    = document.getElementById('reset-btn');
+
+  var elFilename = document.getElementById('info-filename');
+  var elExported = document.getElementById('info-exported');
+  var elUser     = document.getElementById('info-user');
+  var elRole     = document.getElementById('info-role');
+  var elRows     = document.getElementById('info-rows');
+  var elDelKey   = document.getElementById('deleted-key');
+  var elDeleted  = document.getElementById('info-deleted');
+  var elSheets   = document.getElementById('info-sheets');
+
+  // ── App state ─────────────────────────────────────────────────
+  var _backup   = null;
+  var _filename = '';
+
+  // ── State renderers ───────────────────────────────────────────
+
+  function setState(state, opts) {
+    opts = opts || {};
+
+    // Reset all panels
+    dropZone.classList.remove('drag-over');
+    statusStrip.className = 'status-strip';
+    filePanel.className   = 'file-panel';
+    card.classList.remove('is-ready');
+
+    switch (state) {
+
+      case 'idle':
+        dropZone.classList.remove('u-hidden');
+        break;
+
+      case 'dragover':
+        dropZone.classList.remove('u-hidden');
+        dropZone.classList.add('drag-over');
+        break;
+
+      case 'parsing':
+        dropZone.classList.add('u-hidden');
+        statusStrip.classList.add('is-visible', 'is-parsing');
+        statusStrip.textContent = 'Reading file\u2026';
+        break;
+
+      case 'error':
+        dropZone.classList.remove('u-hidden');
+        statusStrip.classList.add('is-visible', 'is-error');
+        statusStrip.textContent = '\u26a0\ufe0e  ' + (opts.message || 'Unknown error.');
+        break;
+
+      case 'ready':
+        dropZone.classList.add('u-hidden');
+        statusStrip.classList.remove('is-visible');
+        filePanel.classList.add('is-visible');
+        card.classList.add('is-ready');
+        // Remove flash class after animation completes
+        setTimeout(function () { card.classList.remove('is-ready'); }, 500);
+        break;
+    }
+  }
+
+  // ── File parsing ──────────────────────────────────────────────
+
+  function handleFile(file) {
+    if (!file) return;
+
+    if (!file.name.toLowerCase().endsWith('.json')) {
+      setState('error', { message: 'Please select a .json backup file.' });
+      return;
+    }
+
+    _filename = file.name;
+    setState('parsing');
+
+    var reader = new FileReader();
+
+    reader.onload = function (e) {
+      var backup;
+      try {
+        backup = JSON.parse(e.target.result);
+      } catch (parseErr) {
+        setState('error', { message: 'JSON parse failed: ' + parseErr.message });
+        return;
+      }
+
+      if (!backup || !Array.isArray(backup.rows)) {
+        setState('error', { message: 'Invalid backup format — "rows" array missing.' });
+        return;
+      }
+
+      _backup = backup;
+      populateInfo(backup, file.name);
+      setState('ready');
+    };
+
+    reader.onerror = function () {
+      setState('error', { message: 'Failed to read the file. Please try again.' });
+    };
+
+    reader.readAsText(file);
+  }
+
+  function populateInfo(backup, filename) {
+    elFilename.textContent = filename;
+
+    elExported.textContent = backup.exported_at
+      ? formatDatetime(backup.exported_at)
+      : '\u2014';
+
+    elUser.textContent = backup.name || '\u2014';
+
+    var role = backup.role || '';
+    elRole.innerHTML = role
+      ? '<span class="role-pill">' + capitalise(role) + '</span>'
+      : '\u2014';
+
+    var rowCount = (backup.rows || []).length;
+    elRows.textContent = rowCount.toLocaleString() + (rowCount === 1 ? ' row' : ' rows');
+
+    var delCount = (backup.deleted_rows || []).length;
+    if (delCount > 0) {
+      elDelKey.classList.remove('u-hidden');
+      elDeleted.classList.remove('u-hidden');
+      elDeleted.textContent = delCount.toLocaleString() + ' row' + (delCount === 1 ? '' : 's') + ' (second sheet)';
+    } else {
+      elDelKey.classList.add('u-hidden');
+      elDeleted.classList.add('u-hidden');
+    }
+
+    var sheetBadges = '<span class="sheet-badge">Data</span>';
+    if (delCount > 0) sheetBadges += ' &nbsp;<span class="sheet-badge">Deleted Records</span>';
+    elSheets.innerHTML = sheetBadges;
+  }
+
+  // ── Excel generation ──────────────────────────────────────────
+
+  function buildAndDownload(backup) {
+    if (typeof XLSX === 'undefined') {
+      alert('The Excel library (xlsx-js-style) failed to load.\nCheck your internet connection and reload the page.');
+      return;
+    }
+
+    var wb = XLSX.utils.book_new();
+
+    // Sheet 1: Data
+    var ws1 = buildSheet(backup.rows || [], COLUMNS);
+    XLSX.utils.book_append_sheet(wb, ws1, 'Data');
+
+    // Sheet 2: Deleted Records (manager backups only)
+    if (backup.deleted_rows && backup.deleted_rows.length) {
+      var delCols = COLUMNS.concat(DELETED_EXTRA);
+      var ws2     = buildSheet(backup.deleted_rows, delCols);
+      XLSX.utils.book_append_sheet(wb, ws2, 'Deleted Records');
+    }
+
+    // Filename: restore_YYYY-MM-DD.xlsx
+    var datePart = backup.exported_at
+      ? String(backup.exported_at).slice(0, 10)
+      : new Date().toISOString().slice(0, 10);
+    var outName = 'restore_' + datePart + '.xlsx';
+
+    XLSX.writeFile(wb, outName);
+  }
+
+  function buildSheet(rows, cols) {
+    // ── Build array-of-arrays ──────────────────────────────────
+    var headerRow = cols.map(function (c) { return c.label; });
+    var dataRows  = rows.map(function (row) {
+      return cols.map(function (col) { return extractValue(row, col); });
+    });
+
+    var aoa = [headerRow].concat(dataRows);
+    var ws  = XLSX.utils.aoa_to_sheet(aoa);
+
+    // ── Ensure !ref covers the full range ─────────────────────
+    ws['!ref'] = XLSX.utils.encode_range({
+      s: { r: 0, c: 0 },
+      e: { r: rows.length, c: cols.length - 1 }
+    });
+
+    // ── Apply header styles ────────────────────────────────────
+    cols.forEach(function (col, ci) {
+      var ref  = XLSX.utils.encode_cell({ r: 0, c: ci });
+      if (!ws[ref]) ws[ref] = { v: col.label, t: 's' };
+      ws[ref].s = (col.type === 'currency' || col.type === 'number')
+        ? S_HDR_NUM
+        : S_HDR;
+    });
+
+    // ── Apply data row styles ──────────────────────────────────
+    rows.forEach(function (row, ri) {
+      var odd = (ri % 2 === 1);
+
+      cols.forEach(function (col, ci) {
+        var ref  = XLSX.utils.encode_cell({ r: ri + 1, c: ci });
+
+        // Ensure the cell exists (aoa_to_sheet skips empty strings)
+        if (!ws[ref]) ws[ref] = { v: '', t: 's' };
+
+        switch (col.type) {
+          case 'currency':
+            ws[ref].s = odd ? S_CUR_ODD : S_CUR_EVEN;
+            break;
+          case 'number':
+            ws[ref].s = odd ? S_NUM_ODD : S_NUM_EVEN;
+            break;
+          default:
+            ws[ref].s = odd ? S_ODD : S_EVEN;
+        }
+      });
+    });
+
+    // ── Sheet metadata ─────────────────────────────────────────
+
+    // Column widths
+    ws['!cols'] = cols.map(function (c) { return { wch: c.wch }; });
+
+    // Freeze header row
+    ws['!freeze'] = { xSplit: 0, ySplit: 1, topLeftCell: 'A2', activeCell: 'A2', sqref: 'A2' };
+
+    // Auto-filter on header (only when there are data rows)
+    if (rows.length > 0) {
+      ws['!autofilter'] = {
+        ref: XLSX.utils.encode_range({
+          s: { r: 0, c: 0 },
+          e: { r: 0, c: cols.length - 1 }
+        })
+      };
+    }
+
+    // Row heights: 22px header, 18px data
+    ws['!rows'] = [{ hpx: 22 }];
+    for (var i = 0; i < rows.length; i++) ws['!rows'].push({ hpx: 18 });
+
+    return ws;
+  }
+
+  // Extract a correctly-typed value for a given column
+  function extractValue(row, col) {
+    var v = row[col.key];
+
+    // deleted_at: epoch-ms timestamp → human-readable string
+    if (col.key === 'deleted_at') {
+      var ms = Number(v);
+      if (!isNaN(ms) && ms > 0) {
+        return new Date(ms).toISOString().slice(0, 16).replace('T', ' ');
+      }
+      return (v === null || v === undefined) ? '' : String(v);
+    }
+
+    // Numeric columns: return a number for Excel to format
+    if (col.type === 'currency' || col.type === 'number') {
+      var n = parseFloat(v);
+      return isNaN(n) ? '' : n;
+    }
+
+    if (v === null || v === undefined) return '';
+    return String(v);
+  }
+
+  // ── Event wiring ──────────────────────────────────────────────
+
+  // Browse button and drop-zone click
+  browseBtn.addEventListener('click', function (e) {
+    e.stopPropagation();
+    fileInput.click();
+  });
+
+  dropZone.addEventListener('click', function (e) {
+    if (e.target !== browseBtn) fileInput.click();
+  });
+
+  // Keyboard activation of drop zone
+  dropZone.addEventListener('keydown', function (e) {
+    if (e.key === 'Enter' || e.key === ' ') {
+      e.preventDefault();
+      fileInput.click();
+    }
+  });
+
+  // File input change
+  fileInput.addEventListener('change', function () {
+    if (fileInput.files && fileInput.files[0]) {
+      handleFile(fileInput.files[0]);
+      fileInput.value = ''; // allow re-selecting same file
+    }
+  });
+
+  // Drag events on drop zone
+  dropZone.addEventListener('dragenter', function (e) {
+    e.preventDefault();
+    setState('dragover');
+  });
+  dropZone.addEventListener('dragover', function (e) {
+    e.preventDefault();
+    dropZone.classList.add('drag-over');
+  });
+  dropZone.addEventListener('dragleave', function () {
+    dropZone.classList.remove('drag-over');
+  });
+  dropZone.addEventListener('dragend', function () {
+    dropZone.classList.remove('drag-over');
+  });
+  dropZone.addEventListener('drop', function (e) {
+    e.preventDefault();
+    var file = e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files[0];
+    if (file) handleFile(file);
+    else dropZone.classList.remove('drag-over');
+  });
+
+  // Prevent browser from opening dropped files on the rest of the page
+  document.addEventListener('dragover', function (e) { e.preventDefault(); });
+  document.addEventListener('drop',     function (e) { e.preventDefault(); });
+
+  // Download button
+  downloadBtn.addEventListener('click', function () {
+    if (!_backup) return;
+    try {
+      buildAndDownload(_backup);
+    } catch (err) {
+      alert('Export failed: ' + err.message);
+    }
+  });
+
+  // Reset / load another file
+  resetBtn.addEventListener('click', function () {
+    _backup   = null;
+    _filename = '';
+    setState('idle');
+  });
+
+  // ── Helpers ───────────────────────────────────────────────────
+
+  function capitalise(str) {
+    return str.charAt(0).toUpperCase() + str.slice(1);
+  }
+
+  function formatDatetime(iso) {
+    try {
+      var d = new Date(iso);
+      if (isNaN(d.getTime())) return iso;
+      var pad = function (n) { return String(n).padStart(2, '0'); };
+      return d.getFullYear() + '-' + pad(d.getMonth() + 1) + '-' + pad(d.getDate()) +
+             '  ' + pad(d.getHours()) + ':' + pad(d.getMinutes());
+    } catch (e) {
+      return iso;
+    }
+  }
+
+  // ── Init ─────────────────────────────────────────────────────
+  setState('idle');
+
+}());
+</script>
+</body>
+</html>
