@@ -430,13 +430,72 @@
 <!-- App init — must be last -->
 <script src="js/app.js"></script>
 
-<!-- ── Service Worker registration ──────────────────────── -->
+<!-- ── Service Worker registration + update detection ───── -->
 <script>
   if ('serviceWorker' in navigator) {
     window.addEventListener('load', function () {
-      navigator.serviceWorker.register('service-worker.js').catch(function (err) {
-        console.warn('Service worker registration failed:', err);
+      navigator.serviceWorker.register('service-worker.js')
+        .then(function (reg) {
+          console.log('[SW] registered — scope:', reg.scope);
+
+          // ── Detect update immediately if a SW is already waiting ──
+          // This covers the case where the user reloads a tab that
+          // already detected a new SW on a previous visit.
+          if (reg.waiting) {
+            _showUpdateBanner(reg.waiting);
+          }
+
+          // ── Detect update when a new SW finishes installing ───────
+          // updatefound fires when a new SW starts downloading.
+          // We then watch its state until it reaches "installed"
+          // (meaning it is waiting to take over).
+          reg.addEventListener('updatefound', function () {
+            var newWorker = reg.installing;
+            if (!newWorker) return;
+            newWorker.addEventListener('statechange', function () {
+              if (newWorker.state === 'installed' && navigator.serviceWorker.controller) {
+                // New SW installed and waiting — old SW still active.
+                // Show the update banner so the user can choose when to apply.
+                _showUpdateBanner(newWorker);
+              }
+            });
+          });
+        })
+        .catch(function (err) {
+          console.warn('[SW] registration failed:', err);
+        });
+
+      // ── Reload when the new SW takes control ─────────────────────
+      // After the user clicks "Update Now", skipWaiting() is called
+      // and the new SW activates. The controllerchange event fires and
+      // we reload so the page picks up all the new cached files.
+      var _reloading = false;
+      navigator.serviceWorker.addEventListener('controllerchange', function () {
+        if (_reloading) return;
+        _reloading = true;
+        console.log('[SW] controller changed — reloading for update');
+        window.location.reload();
       });
+    });
+  }
+
+  // ── Show the update banner ────────────────────────────────────
+  // Reveals #update-banner (already in HTML, styled in css/main.css).
+  // Wires the "Update Now" button to send SKIP_WAITING to the
+  // waiting SW, which triggers activation and the reload above.
+
+  function _showUpdateBanner(waitingWorker) {
+    var banner = document.getElementById('update-banner');
+    var btn    = document.getElementById('update-banner-btn');
+    if (!banner || !btn) return;
+
+    banner.removeAttribute('hidden');
+
+    btn.addEventListener('click', function () {
+      waitingWorker.postMessage({ type: 'SKIP_WAITING' });
+      // Disable button while the new SW activates + page reloads
+      btn.disabled    = true;
+      btn.textContent = 'Updating\u2026';
     });
   }
 </script>
