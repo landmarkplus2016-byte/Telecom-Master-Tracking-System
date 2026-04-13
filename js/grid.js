@@ -97,9 +97,10 @@ var Grid = (function () {
   var _globalSearchFn  = null;   // predicate fn for global search, or null when inactive
   var _savePending     = {};     // rowIdx → setTimeout handle (debounce per row)
   var _dropdownSources = {};     // { field_key: [option, ...] } — merged from DROPDOWN_DEFAULTS + Config
-  var _lockedRows      = {};     // { physicalRowIndex: true } — built in loadData for coordinator role
-  var _jcErrors        = {};     // { physicalRowIndex: true } — rows with a JC conflict; drives red highlight
-  var _changedRows     = {};     // { physicalRowIndex: timerId } — manager: coordinator just saved this row
+  var _lockedRows           = {};     // { physicalRowIndex: true } — built in loadData for coordinator role
+  var _jcErrors             = {};     // { physicalRowIndex: true } — rows with a JC conflict; drives red highlight
+  var _changedRows          = {};     // { physicalRowIndex: timerId } — manager: coordinator just saved this row
+  var _savedFilterConditions = [];    // last conditionsStack from afterFilter — restored after any loadData call
 
   // ── Public API ────────────────────────────────────────────
 
@@ -476,38 +477,33 @@ var Grid = (function () {
   // delta syncs, global search resets, and row remove/restore operations.
 
   function _hotLoadData(data) {
-    var saved = _saveHotFilterConditions();
     _hot.loadData(data);
-    if (saved.length) _restoreHotFilterConditions(saved);
+    // HOT's loadData clears the Filters plugin state. Re-apply the last known
+    // conditions immediately. _savedFilterConditions is kept up-to-date by the
+    // afterFilter hook (set on every user filter change and on every restore).
+    if (_savedFilterConditions.length) {
+      _restoreHotFilterConditions(_savedFilterConditions);
+    }
   }
 
-  function _saveHotFilterConditions() {
-    var saved = [];
-    try {
-      var fp = _hot && _hot.getPlugin('filters');
-      var cc = fp && fp.conditionCollection;
-      if (!cc || !cc.getFilteredColumns) return saved;
-      cc.getFilteredColumns().forEach(function (col) {
-        var conds = cc.getConditions ? cc.getConditions(col) : [];
-        if (conds && conds.length) {
-          saved.push({ col: col, conditions: JSON.parse(JSON.stringify(conds)) });
-        }
-      });
-    } catch (e) { /* non-fatal — if plugin API changes, filters just reset */ }
-    return saved;
-  }
-
-  function _restoreHotFilterConditions(saved) {
+  function _restoreHotFilterConditions(conditionsStack) {
     try {
       var fp = _hot && _hot.getPlugin('filters');
       if (!fp) return;
-      saved.forEach(function (entry) {
+      fp.clearConditions();
+      conditionsStack.forEach(function (entry) {
         entry.conditions.forEach(function (cond) {
-          fp.addCondition(entry.col, cond.name, cond.args || []);
+          // HOT 14 signature: addCondition(column, conditionDescriptor, operationType)
+          // conditionDescriptor = { name, args }
+          fp.addCondition(
+            entry.column,
+            { name: cond.name, args: cond.args || [] },
+            entry.operation || 'conjunction'
+          );
         });
       });
       fp.filter();
-    } catch (e) { /* non-fatal */ }
+    } catch (e) { /* non-fatal — worst case: filter resets visually, no data loss */ }
   }
 
   // ── Handsontable init ─────────────────────────────────────
@@ -587,6 +583,9 @@ var Grid = (function () {
       dropdownMenu:       ['filter_by_condition', '---------', 'filter_by_value', '---------', 'filter_action_bar'],
 
       afterFilter: function (conditionsStack) {
+        // Save a deep copy of the current filter state.
+        // _hotLoadData reads this to re-apply conditions after every loadData call.
+        _savedFilterConditions = JSON.parse(JSON.stringify(conditionsStack || []));
         _updateRowCount(_hot ? _hot.countRows() : _data.length);
         if (typeof Filters !== 'undefined') {
           Filters.onColumnFilterChanged(conditionsStack || []);
@@ -1581,11 +1580,12 @@ var Grid = (function () {
    * Called by the filter panel's "Clear All" button via js/filters.js.
    */
   function clearAllFilters() {
+    _savedFilterConditions = []; // prevent restore after the loadData in applyGlobalSearch
     if (_hot) {
       var filtersPlugin = _hot.getPlugin('filters');
       if (filtersPlugin) {
         filtersPlugin.clearConditions();
-        filtersPlugin.filter();
+        filtersPlugin.filter(); // fires afterFilter with [] → keeps _savedFilterConditions in sync
       }
     }
     applyGlobalSearch(null);
