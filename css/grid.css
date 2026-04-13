@@ -48,20 +48,121 @@
 /* Alternating cool tint makes wide rows far easier to scan.  */
 /* :not() exclusions ensure semantic state classes (locked,   */
 /* error, changed, readonly) always override the stripe.      */
-/* Specificity here is intentionally high so it beats the     */
-/* base .handsontable td rule from grid.js, while the         */
-/* semantic class-based rules in grid.js (e.g. td.row-locked) */
-/* still win because they are excluded here via :not().       */
 .handsontable .htCore tbody tr:nth-child(even) td:not(.row-locked):not(.cell-jc-error):not(.row-changed):not(.cell-readonly) {
   background-color: #f0f5fc !important;
 }
 
 /* Even rows, read-only variant — slightly deeper tint keeps  */
 /* the readonly cue visible against the zebra background.     */
-/* This rule is less specific than the one above so it only   */
-/* applies when the td doesn't also match the exclusions.     */
-/* (readonly cells are excluded from the rule above, so this  */
-/* separate rule picks them up on even rows only.)            */
-/* Note: grid.js injects later so its td.cell-readonly rule   */
-/* also applies; whichever has higher specificity wins.       */
-/* We rely on semantic state rules from grid.js for odd rows. */
+.handsontable .htCore tbody tr:nth-child(even) td.cell-readonly {
+  background-color: #e8eef8 !important;
+}
+
+/* ── Selected area cells ────────────────────────────────── */
+/* HOT default selection is blue; tone to gold-tinted navy.  */
+
+.handsontable td.area {
+  background: rgba(201, 151, 58, 0.10) !important;
+}
+
+.handsontable td.current.highlight {
+  background: rgba(201, 151, 58, 0.18) !important;
+}
+
+/* Active cell border — thin gold outline */
+.handsontable td.current {
+  outline: 2px solid rgba(201, 151, 58, 0.8) !important;
+  outline-offset: -2px;
+}
+
+/* ── Locked rows (coordinator) — grey tint + muted text ─── */
+/* grid.js injects td.row-locked; CSS adds tr-level context.  */
+.handsontable .htCore tbody tr td.row-locked {
+  color: var(--text-secondary) !important;
+  cursor: default !important;
+}
+
+/* ── Changed rows (delta sync, manager view) ───────────── */
+/* Subtle gold-amber tint signals a row updated from server. */
+.handsontable .htCore tbody tr td.row-changed {
+  background-color: rgba(201, 151, 58, 0.07) !important;
+}
+
+/* ── HOT context menu ───────────────────────────────────── */
+/* Override HOT's default grey context menu to match the     */
+/* app's surface/border system.                              */
+
+.htContextMenu .ht_master table.htCore {
+  border: 1px solid var(--border) !important;
+  box-shadow: 0 8px 32px rgba(10, 20, 35, 0.16) !important;
+}
+
+.htContextMenu td {
+  font-family: var(--font-body) !important;
+  font-size: 12px !important;
+  color: var(--text-primary) !important;
+  padding: 6px 16px !important;
+  background: var(--bg-surface) !important;
+  border-color: var(--border) !important;
+  cursor: pointer !important;
+  white-space: nowrap !important;
+}
+
+.htContextMenu td:hover,
+.htContextMenu td.htCustomMenuRenderer:hover {
+  background: var(--bg-base) !important;
+  color: var(--text-primary) !important;
+}
+
+/* Separator line between menu groups */
+.htContextMenu td.htSeparator {
+  padding: 0 !important;
+  height: 1px !important;
+  background: var(--border) !important;
+  cursor: default !important;
+}
+
+/* Disabled menu item */
+.htContextMenu td.htDisabled {
+  color: var(--text-secondary) !important;
+  cursor: default !important;
+  opacity: 0.55;
+}
+
+/* ── HOT grid scrollbar ─────────────────────────────────── */
+/* Thin scrollbar on the HOT master container.               */
+
+.handsontable .wtHolder::-webkit-scrollbar {
+  width: 7px;
+  height: 7px;
+}
+
+.handsontable .wtHolder::-webkit-scrollbar-track {
+  background: var(--bg-base);
+}
+
+.handsontable .wtHolder::-webkit-scrollbar-thumb {
+  background: var(--border);
+}
+
+.handsontable .wtHolder::-webkit-scrollbar-thumb:hover {
+  background: var(--text-secondary);
+}
+
+.handsontable .wtHolder::-webkit-scrollbar-corner {
+  background: var(--bg-base);
+}
+
+/* ── Column resize handle ────────────────────────────────── */
+/* HOT's default resize handle; gold accent on hover.         */
+
+.handsontable .manualColumnResizer {
+  background: transparent;
+  border-right: 2px solid var(--border-navy);
+  transition: border-color 0.15s;
+}
+
+.handsontable .manualColumnResizer:hover,
+.handsontable .manualColumnResizer.active {
+  border-right-color: var(--accent);
+}
