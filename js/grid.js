@@ -166,7 +166,7 @@ var Grid = (function () {
     // HOT columns are configured with data:'key' — pass objects directly.
     // Converting to arrays causes empty cells because HOT uses the key
     // mapping, not array index, when columns[i].data is set.
-    _hot.loadData(_data);
+    _hotLoadData(_data);
     _updateRowCount(_hot ? _hot.countRows() : _data.length);
 
     // Apply pricing calculations and indicators to every loaded row.
@@ -296,9 +296,6 @@ var Grid = (function () {
 
     // Add Row — all roles
     buttons.push('<button class="tb-btn tb-btn--primary" id="tb-add-row">+ New Row</button>');
-
-    // Filter — all roles (wired by js/filters.js after init)
-    buttons.push('<button class="tb-btn" id="tb-filter">&#9660; Filter</button>');
 
     // Refresh — all roles (replaced by delta sync in Stage 3)
     buttons.push('<button class="tb-btn" id="tb-refresh">&#8635; Refresh</button>');
@@ -464,11 +461,53 @@ var Grid = (function () {
     }
 
     if (hasNewRows) {
-      _hot.loadData(_data);
+      _hotLoadData(_data);
     } else {
       _hot.render();
     }
     _updateRowCount(_hot ? _hot.countRows() : _data.length);
+  }
+
+  // ── _hotLoadData — load data while preserving active column filters ──
+  //
+  // HOT's native loadData() resets the Filters plugin, wiping any active
+  // column conditions the user has set. This helper saves those conditions
+  // before the reload and restores them afterward so column filters survive
+  // delta syncs, global search resets, and row remove/restore operations.
+
+  function _hotLoadData(data) {
+    var saved = _saveHotFilterConditions();
+    _hot.loadData(data);
+    if (saved.length) _restoreHotFilterConditions(saved);
+  }
+
+  function _saveHotFilterConditions() {
+    var saved = [];
+    try {
+      var fp = _hot && _hot.getPlugin('filters');
+      var cc = fp && fp.conditionCollection;
+      if (!cc || !cc.getFilteredColumns) return saved;
+      cc.getFilteredColumns().forEach(function (col) {
+        var conds = cc.getConditions ? cc.getConditions(col) : [];
+        if (conds && conds.length) {
+          saved.push({ col: col, conditions: JSON.parse(JSON.stringify(conds)) });
+        }
+      });
+    } catch (e) { /* non-fatal — if plugin API changes, filters just reset */ }
+    return saved;
+  }
+
+  function _restoreHotFilterConditions(saved) {
+    try {
+      var fp = _hot && _hot.getPlugin('filters');
+      if (!fp) return;
+      saved.forEach(function (entry) {
+        entry.conditions.forEach(function (cond) {
+          fp.addCondition(entry.col, cond.name, cond.args || []);
+        });
+      });
+      fp.filter();
+    } catch (e) { /* non-fatal */ }
   }
 
   // ── Handsontable init ─────────────────────────────────────
@@ -1511,7 +1550,7 @@ var Grid = (function () {
       });
     }
 
-    _hot.loadData(_data);
+    _hotLoadData(_data);
     _updateRowCount(_hot ? _hot.countRows() : _data.length);
   }
 
@@ -1532,7 +1571,7 @@ var Grid = (function () {
     }
 
     if (_hot) {
-      _hot.loadData(_data);
+      _hotLoadData(_data);
       _updateRowCount(_hot ? _hot.countRows() : _data.length);
     }
   }
