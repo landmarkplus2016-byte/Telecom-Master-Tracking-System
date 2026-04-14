@@ -413,6 +413,204 @@
 
     /* ── Utilities ───────────────────────────────────────────── */
     .u-hidden { display: none !important; }
+
+    /* ── Tab strip ───────────────────────────────────────────── */
+    .tab-strip {
+      display: flex;
+      border-bottom: 2px solid var(--border);
+      background: var(--bg-light);
+    }
+    .tab-btn {
+      flex: 1;
+      height: 44px;
+      background: transparent;
+      border: none;
+      font-family: var(--font-disp);
+      font-weight: 600;
+      font-size: 11px;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+      color: var(--text-mid);
+      cursor: pointer;
+      border-bottom: 2px solid transparent;
+      margin-bottom: -2px;
+      transition: color 0.15s, border-color 0.15s, background 0.15s;
+    }
+    .tab-btn:hover { color: var(--text); }
+    .tab-btn.tab-active {
+      color: var(--navy);
+      border-bottom-color: var(--gold);
+      background: var(--surface);
+    }
+
+    /* ── Import panel ─────────────────────────────────────────── */
+    #panel-import { display: none; }
+    #panel-import.is-active { display: block; }
+    #panel-restore.is-hidden { display: none; }
+
+    .imp-drop-zone {
+      margin: 28px;
+      padding: 44px 40px 38px;
+      border: 2px dashed var(--border);
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 10px;
+      text-align: center;
+      cursor: pointer;
+      transition: border-color 0.2s, background 0.2s;
+      outline: none;
+    }
+    .imp-drop-zone:hover, .imp-drop-zone.drag-over {
+      border-color: var(--gold);
+      background: var(--gold-dim);
+    }
+    .imp-drop-zone.drag-over .drop-icon { transform: translateY(-6px) scale(1.1); }
+
+    .imp-status {
+      padding: 18px 28px;
+      font-family: var(--font-mono);
+      font-size: 11px;
+      letter-spacing: 0.1em;
+      text-align: center;
+      display: none;
+    }
+    .imp-status.is-visible { display: block; }
+    .imp-status.is-parsing { color: var(--text-mid); }
+    .imp-status.is-error   { color: var(--error); background: rgba(192,57,43,0.06); }
+
+    .imp-preview { display: none; padding: 22px 28px 24px; }
+    .imp-preview.is-visible { display: block; }
+
+    .imp-preview-head {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      padding-bottom: 14px;
+      border-bottom: 1px solid var(--border);
+      margin-bottom: 16px;
+    }
+    .imp-preview-name {
+      font-family: var(--font-mono);
+      font-size: 12px;
+      font-weight: 500;
+      color: var(--text);
+      word-break: break-all;
+    }
+    .imp-preview-lbl {
+      font-family: var(--font-mono);
+      font-size: 9px;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+      color: var(--text-mute);
+    }
+
+    .imp-stats {
+      display: grid;
+      grid-template-columns: 90px 1fr;
+      row-gap: 8px;
+      column-gap: 16px;
+      margin-bottom: 18px;
+    }
+    .imp-stat-key {
+      font-family: var(--font-mono);
+      font-size: 9px;
+      letter-spacing: 0.14em;
+      text-transform: uppercase;
+      color: var(--text-mute);
+      display: flex;
+      align-items: center;
+    }
+    .imp-stat-val {
+      font-family: var(--font-mono);
+      font-size: 12px;
+      font-weight: 500;
+      color: var(--text);
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+    .imp-warn-badge {
+      font-size: 9px;
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+      padding: 2px 7px;
+      background: rgba(201,151,58,0.12);
+      color: var(--gold);
+      border: 1px solid var(--gold-border);
+    }
+
+    .imp-config {
+      border-top: 1px solid var(--border);
+      padding-top: 16px;
+      margin-bottom: 16px;
+    }
+    .imp-config-title {
+      font-family: var(--font-disp);
+      font-weight: 600;
+      font-size: 10px;
+      letter-spacing: 0.14em;
+      text-transform: uppercase;
+      color: var(--text-mid);
+      margin-bottom: 14px;
+    }
+    .imp-field { display: flex; flex-direction: column; gap: 5px; margin-bottom: 10px; }
+    .imp-label {
+      font-family: var(--font-mono);
+      font-size: 9px;
+      letter-spacing: 0.14em;
+      text-transform: uppercase;
+      color: var(--text-mute);
+    }
+    .imp-input {
+      width: 100%;
+      height: 38px;
+      padding: 0 10px;
+      font-family: var(--font-mono);
+      font-size: 12px;
+      color: var(--text);
+      background: var(--surface);
+      border: 1px solid var(--border);
+      outline: none;
+      transition: border-color 0.15s;
+    }
+    .imp-input:focus { border-color: var(--navy); }
+    .imp-input-row { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+
+    .imp-progress-wrap { display: none; padding: 12px 0 4px; }
+    .imp-progress-wrap.is-visible { display: block; }
+    .imp-progress-bar { height: 4px; background: var(--border); overflow: hidden; margin-bottom: 8px; }
+    .imp-progress-fill { height: 100%; background: var(--gold); width: 0%; transition: width 0.25s ease; }
+    .imp-progress-lbl { font-family: var(--font-mono); font-size: 10px; color: var(--text-mid); text-align: center; }
+
+    .imp-done { display: none; padding: 32px 28px; text-align: center; }
+    .imp-done.is-visible { display: block; }
+    .imp-done-icon {
+      width: 42px; height: 42px; border-radius: 50%;
+      background: var(--success);
+      display: flex; align-items: center; justify-content: center;
+      margin: 0 auto 14px;
+      animation: pop-in 0.3s cubic-bezier(0.175,0.885,0.32,1.275);
+    }
+    .imp-done-title {
+      font-family: var(--font-disp);
+      font-weight: 700; font-size: 22px;
+      letter-spacing: 0.04em; text-transform: uppercase;
+      color: var(--text); margin-bottom: 6px;
+    }
+    .imp-done-sub { font-family: var(--font-mono); font-size: 11px; color: var(--text-mid); margin-bottom: 20px; }
+
+    .upload-btn {
+      width: 100%; height: 50px;
+      background: var(--navy); color: #fff; border: none;
+      font-family: var(--font-disp); font-weight: 700;
+      font-size: 15px; letter-spacing: 0.16em; text-transform: uppercase;
+      cursor: pointer; transition: background 0.15s;
+      display: flex; align-items: center; justify-content: center; gap: 10px;
+      margin-bottom: 10px;
+    }
+    .upload-btn:hover:not(:disabled) { background: var(--navy-mid); }
+    .upload-btn:disabled { opacity: 0.5; cursor: not-allowed; }
   </style>
 </head>
 
@@ -430,6 +628,15 @@
   <main class="card" id="card" role="main">
     <span class="card-corner-tr" aria-hidden="true"></span>
     <span class="card-corner-bl" aria-hidden="true"></span>
+
+    <!-- Tab strip -->
+    <div class="tab-strip">
+      <button class="tab-btn tab-active" id="tab-restore-btn" type="button">Restore Backup</button>
+      <button class="tab-btn" id="tab-import-btn" type="button">&#8593; Import Tracking</button>
+    </div>
+
+  <!-- ── Panel: Restore (JSON → Excel) ─────────────────────── -->
+  <div id="panel-restore">
 
     <!-- Drop zone -->
     <div class="drop-zone"
@@ -508,6 +715,108 @@
       </button>
       <button class="reset-btn" id="reset-btn" type="button">Load another file</button>
     </div>
+  </div><!-- /#panel-restore -->
+
+  <!-- ── Panel: Import (Excel → System) ─────────────────────── -->
+  <div id="panel-import">
+
+    <!-- Drop zone -->
+    <div class="imp-drop-zone" id="imp-drop-zone" role="button" tabindex="0"
+         aria-label="Drop Excel tracking file here or press Enter to browse">
+      <input type="file" id="imp-file-input" accept=".xlsx,.xlsm,.xls" hidden>
+      <div class="drop-icon" aria-hidden="true">
+        <svg width="44" height="44" viewBox="0 0 44 44" fill="none">
+          <rect x="8" y="3" width="22" height="30" rx="2" stroke="currentColor" stroke-width="1.5" fill="none"/>
+          <path d="M22 3 L30 11" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+          <path d="M22 3 L22 11 L30 11" stroke="currentColor" stroke-width="1.5" fill="none"/>
+          <path d="M13 17h12M13 21h12M13 25h8" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+          <circle cx="35" cy="35" r="8" fill="#1a2e4a"/>
+          <path d="M35 30v6M32 34l3 3 3-3" stroke="white" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
+        </svg>
+      </div>
+      <p class="drop-title">Drop your tracking spreadsheet here</p>
+      <p class="drop-sub">or <button class="browse-link" id="imp-browse-btn" type="button">browse files</button></p>
+      <p class="drop-hint">.xlsx &nbsp;·&nbsp; .xlsm</p>
+    </div>
+
+    <!-- Status: parsing / error -->
+    <div class="imp-status" id="imp-status"></div>
+
+    <!-- Preview + config (shown after successful parse) -->
+    <div class="imp-preview" id="imp-preview">
+      <div class="imp-preview-head">
+        <div class="check-circle" aria-hidden="true" style="width:32px;height:32px;flex-shrink:0">
+          <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+            <path d="M3 8.5l3 3 7-7" stroke="white" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+          </svg>
+        </div>
+        <div>
+          <div class="imp-preview-name" id="imp-filename">file.xlsx</div>
+          <div class="imp-preview-lbl">File parsed — review before uploading</div>
+        </div>
+      </div>
+
+      <div class="imp-stats">
+        <span class="imp-stat-key">Rows</span>
+        <span class="imp-stat-val" id="imp-row-count">—</span>
+
+        <span class="imp-stat-key">Columns</span>
+        <span class="imp-stat-val" id="imp-col-status">—</span>
+
+        <span class="imp-stat-key">Sheet</span>
+        <span class="imp-stat-val" id="imp-sheet-name">—</span>
+      </div>
+
+      <!-- Connection config -->
+      <div class="imp-config">
+        <div class="imp-config-title">Upload Settings</div>
+        <div class="imp-field">
+          <label class="imp-label" for="imp-url">Apps Script URL</label>
+          <input class="imp-input" id="imp-url" type="url" autocomplete="off" spellcheck="false"
+                 placeholder="https://script.google.com/macros/s/…/exec">
+        </div>
+        <div class="imp-input-row">
+          <div class="imp-field">
+            <label class="imp-label" for="imp-name">Your Name</label>
+            <input class="imp-input" id="imp-name" type="text" autocomplete="off" spellcheck="false" placeholder="Manager name">
+          </div>
+          <div class="imp-field">
+            <label class="imp-label" for="imp-code">Access Code</label>
+            <input class="imp-input" id="imp-code" type="password" autocomplete="off" placeholder="••••••">
+          </div>
+        </div>
+
+        <!-- Progress (hidden until upload starts) -->
+        <div class="imp-progress-wrap" id="imp-progress-wrap">
+          <div class="imp-progress-bar"><div class="imp-progress-fill" id="imp-progress-fill"></div></div>
+          <div class="imp-progress-lbl" id="imp-progress-lbl">Uploading…</div>
+        </div>
+      </div>
+
+      <button class="upload-btn" id="imp-upload-btn" type="button">
+        <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+          <path d="M8 11V2M4 5l4-4 4 4" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+          <path d="M2 14h12" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+        </svg>
+        Upload to System
+      </button>
+      <button class="reset-btn" id="imp-reset-btn" type="button">Load another file</button>
+    </div><!-- /#imp-preview -->
+
+    <!-- Done state -->
+    <div class="imp-done" id="imp-done">
+      <div class="imp-done-icon">
+        <svg width="20" height="20" viewBox="0 0 20 20" fill="none">
+          <path d="M4 10.5l4 4 8-8" stroke="white" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/>
+        </svg>
+      </div>
+      <div class="imp-done-title">Import Complete</div>
+      <div class="imp-done-sub" id="imp-done-sub">Rows uploaded successfully.</div>
+      <button class="reset-btn" id="imp-done-reset-btn" type="button">Import another file</button>
+    </div>
+
+  </div><!-- /#panel-import -->
+
   </main>
 
   <!-- ── Footer ──────────────────────────────────────────────── -->
@@ -995,6 +1304,429 @@
       return iso;
     }
   }
+
+  // ── Tab switching ─────────────────────────────────────────────
+
+  var tabRestoreBtn = document.getElementById('tab-restore-btn');
+  var tabImportBtn  = document.getElementById('tab-import-btn');
+  var panelRestore  = document.getElementById('panel-restore');
+  var panelImport   = document.getElementById('panel-import');
+
+  function switchTab(tab) {
+    if (tab === 'import') {
+      tabRestoreBtn.classList.remove('tab-active');
+      tabImportBtn.classList.add('tab-active');
+      panelRestore.classList.add('is-hidden');
+      panelImport.classList.add('is-active');
+    } else {
+      tabImportBtn.classList.remove('tab-active');
+      tabRestoreBtn.classList.add('tab-active');
+      panelImport.classList.remove('is-active');
+      panelRestore.classList.remove('is-hidden');
+    }
+  }
+
+  tabRestoreBtn.addEventListener('click', function () { switchTab('restore'); });
+  tabImportBtn.addEventListener('click',  function () { switchTab('import'); });
+
+  // Auto-switch to import tab if ?mode=import is in the URL
+  if (window.location.search.indexOf('mode=import') !== -1) {
+    switchTab('import');
+  }
+
+
+  // ── Import tab logic ───────────────────────────────────────────
+  //
+  // Flow:
+  //   1. User drops/selects an .xlsx or .xlsm file
+  //   2. SheetJS parses the first data sheet
+  //   3. Header row is mapped to internal column keys
+  //   4. Preview panel shows row count + mapping status
+  //   5. User fills in Apps Script URL, name, code (pre-filled from localStorage)
+  //   6. Upload button sends rows in batches of 50 via writeBatch
+  //   7. Done state shows total uploaded + any errors
+
+  (function () {
+
+    // ── Column key ↔ header label map ─────────────────────────────
+    // Built from COLUMNS array at runtime so it stays in sync.
+
+    var _keyMap = {};
+
+    (function buildKeyMap() {
+      COLUMNS.forEach(function (col) {
+        _keyMap[col.key.toLowerCase().replace(/[\s_]+/g, ' ')] = col.key;
+        _keyMap[col.label.toLowerCase().replace(/[\s_]+/g, ' ')] = col.key;
+      });
+
+      var aliases = {
+        'jc':                          'job_code',
+        'coordinator':                 'coordinator_name',
+        'coordinator name':            'coordinator_name',
+        'acceptance':                  'acceptance_status',
+        'logical site':                'logical_site_id',
+        'logical site id':             'logical_site_id',
+        'physical site':               'physical_site_id',
+        'physical site id':            'physical_site_id',
+        'qty':                         'absolute_quantity',
+        'quantity':                    'absolute_quantity',
+        'rc quantity':                 'actual_quantity',
+        'actual qty':                  'actual_quantity',
+        'engineer':                    'engineer_name',
+        "engineer's name":             'engineer_name',
+        'engineers name':              'engineer_name',
+        'new total':                   'new_total_price',
+        'fac':                         'fac_date',
+        'cert':                        'certificate_num',
+        'cert #':                      'certificate_num',
+        'tsr':                         'tsr_sub',
+        'tsr sub#':                    'tsr_sub',
+        'po #':                        'po_number',
+        'vf invoice':                  'vf_invoice_num',
+        'vf invoice #':                'vf_invoice_num',
+        '1st receiving':               'first_receiving_date',
+        'lmp':                         'lmp_portion',
+        'sent to cc':                  'sent_to_cost_control',
+        'contractor invoice #':        'contractor_invoice_num',
+        'vf invoice submission':       'vf_invoice_submission_date',
+        'cash received':               'cash_received_date'
+      };
+
+      Object.keys(aliases).forEach(function (a) { _keyMap[a] = aliases[a]; });
+    }());
+
+    function headerToKey(header) {
+      var norm = String(header).trim().toLowerCase().replace(/\s+/g, ' ');
+      return _keyMap[norm] || null;
+    }
+
+    // ── State ──────────────────────────────────────────────────────
+
+    var _impRows     = [];
+    var _impFilename = '';
+
+    // ── DOM refs ───────────────────────────────────────────────────
+
+    var impDropZone     = document.getElementById('imp-drop-zone');
+    var impFileInput    = document.getElementById('imp-file-input');
+    var impBrowseBtn    = document.getElementById('imp-browse-btn');
+    var impStatus       = document.getElementById('imp-status');
+    var impPreview      = document.getElementById('imp-preview');
+    var impFilenameEl   = document.getElementById('imp-filename');
+    var impRowCount     = document.getElementById('imp-row-count');
+    var impColStatus    = document.getElementById('imp-col-status');
+    var impSheetName    = document.getElementById('imp-sheet-name');
+    var impUrlInput     = document.getElementById('imp-url');
+    var impNameInput    = document.getElementById('imp-name');
+    var impCodeInput    = document.getElementById('imp-code');
+    var impProgressWrap = document.getElementById('imp-progress-wrap');
+    var impProgressFill = document.getElementById('imp-progress-fill');
+    var impProgressLbl  = document.getElementById('imp-progress-lbl');
+    var impUploadBtn    = document.getElementById('imp-upload-btn');
+    var impResetBtn     = document.getElementById('imp-reset-btn');
+    var impDone         = document.getElementById('imp-done');
+    var impDoneSub      = document.getElementById('imp-done-sub');
+    var impDoneReset    = document.getElementById('imp-done-reset-btn');
+
+    // ── State renderers ────────────────────────────────────────────
+
+    function impSetState(state, opts) {
+      opts = opts || {};
+      impDropZone.classList.remove('drag-over', 'u-hidden');
+      impStatus.className  = 'imp-status';
+      impPreview.className = 'imp-preview';
+      impDone.className    = 'imp-done';
+
+      switch (state) {
+        case 'idle':     break;
+        case 'dragover': impDropZone.classList.add('drag-over'); break;
+        case 'parsing':
+          impDropZone.classList.add('u-hidden');
+          impStatus.classList.add('is-visible', 'is-parsing');
+          impStatus.textContent = 'Reading file\u2026';
+          break;
+        case 'error':
+          impStatus.classList.add('is-visible', 'is-error');
+          impStatus.textContent = '\u26a0\ufe0e  ' + (opts.message || 'Unknown error.');
+          break;
+        case 'preview':
+          impDropZone.classList.add('u-hidden');
+          impPreview.classList.add('is-visible');
+          break;
+        case 'done':
+          impDropZone.classList.add('u-hidden');
+          impDone.classList.add('is-visible');
+          break;
+      }
+    }
+
+    // ── File handling ──────────────────────────────────────────────
+
+    function handleImportFile(file) {
+      if (!file) return;
+      var name = file.name.toLowerCase();
+      if (!name.endsWith('.xlsx') && !name.endsWith('.xlsm') && !name.endsWith('.xls')) {
+        impSetState('error', { message: 'Please select an Excel file (.xlsx or .xlsm).' });
+        return;
+      }
+      if (typeof XLSX === 'undefined') {
+        impSetState('error', { message: 'Excel library failed to load. Check your connection and reload.' });
+        return;
+      }
+      _impFilename = file.name;
+      impSetState('parsing');
+      var reader = new FileReader();
+      reader.onload = function (e) {
+        try {
+          var wb = XLSX.read(e.target.result, { type: 'array', cellDates: true });
+          parseWorkbook(wb, file.name);
+        } catch (err) {
+          impSetState('error', { message: 'Could not read Excel file: ' + err.message });
+        }
+      };
+      reader.onerror = function () {
+        impSetState('error', { message: 'Failed to read the file. Please try again.' });
+      };
+      reader.readAsArrayBuffer(file);
+    }
+
+    function parseWorkbook(wb, filename) {
+      // Find the data sheet — prefer "Data", then first sheet
+      var sheetName = wb.SheetNames[0];
+      for (var si = 0; si < wb.SheetNames.length; si++) {
+        var sn = wb.SheetNames[si].toLowerCase();
+        if (sn === 'data' || sn === 'tracking' || sn === 'coordinator tracking' || sn === 'sheet1') {
+          sheetName = wb.SheetNames[si];
+          break;
+        }
+      }
+
+      var ws = wb.Sheets[sheetName];
+      if (!ws) { impSetState('error', { message: 'No readable sheet found.' }); return; }
+
+      var aoa = XLSX.utils.sheet_to_json(ws, { header: 1, defval: '', raw: false });
+      if (!aoa.length || !aoa[0].length) {
+        impSetState('error', { message: 'The sheet appears to be empty.' });
+        return;
+      }
+
+      // Find the first non-empty row to use as header
+      var headerRowIdx = 0;
+      for (var ri = 0; ri < Math.min(aoa.length, 5); ri++) {
+        var nonEmpty = aoa[ri].filter(function (c) { return String(c).trim() !== ''; });
+        if (nonEmpty.length >= 3) { headerRowIdx = ri; break; }
+      }
+
+      var headers = aoa[headerRowIdx].map(function (h) { return String(h).trim(); });
+
+      var colMapping = [];
+      var mappedKeys = {};
+      var unmapped   = [];
+
+      headers.forEach(function (h, idx) {
+        if (!h) return;
+        var key = headerToKey(h);
+        if (key && !mappedKeys[key]) {
+          colMapping.push({ xCol: idx, key: key });
+          mappedKeys[key] = true;
+        } else if (!key) {
+          unmapped.push(h);
+        }
+      });
+
+      if (!colMapping.length) {
+        impSetState('error', { message: 'No recognisable column headers found. Ensure row 1 contains column names.' });
+        return;
+      }
+
+      // Build row objects
+      var rows = [];
+      for (var r = headerRowIdx + 1; r < aoa.length; r++) {
+        var xlRow  = aoa[r];
+        var hasData = xlRow.some(function (c) { return String(c).trim() !== ''; });
+        if (!hasData) continue;
+
+        var rowObj = {};
+        colMapping.forEach(function (cm) {
+          var val = xlRow[cm.xCol];
+          if (val instanceof Date) {
+            var yy = val.getFullYear();
+            var mm = String(val.getMonth() + 1).padStart(2, '0');
+            var dd = String(val.getDate()).padStart(2, '0');
+            rowObj[cm.key] = yy + '-' + mm + '-' + dd;
+          } else {
+            rowObj[cm.key] = (val === null || val === undefined) ? '' : String(val).trim();
+          }
+        });
+        rows.push(rowObj);
+      }
+
+      if (!rows.length) {
+        impSetState('error', { message: 'No data rows found after the header.' });
+        return;
+      }
+
+      _impRows = rows;
+
+      // Populate preview
+      impFilenameEl.textContent = filename;
+      impRowCount.textContent   = rows.length.toLocaleString() + ' row' + (rows.length === 1 ? '' : 's');
+      impSheetName.innerHTML    = '<span class="sheet-badge">' + _hesc(sheetName) + '</span>';
+
+      var colHtml = colMapping.length + ' / ' + COLUMNS.length + ' columns mapped';
+      if (unmapped.length) {
+        colHtml += ' &nbsp;<span class="imp-warn-badge">' + unmapped.length + ' unrecognised</span>';
+      }
+      impColStatus.innerHTML = colHtml;
+
+      // Pre-fill Script URL from localStorage (same origin)
+      try {
+        var storedUrl = localStorage.getItem('apps_script_url') || '';
+        if (storedUrl) impUrlInput.value = storedUrl;
+      } catch (e) {}
+
+      impSetState('preview');
+    }
+
+    // ── Upload ─────────────────────────────────────────────────────
+
+    function uploadRows() {
+      var url  = (impUrlInput.value  || '').trim();
+      var name = (impNameInput.value || '').trim();
+      var code = (impCodeInput.value || '').trim();
+
+      if (!url)  { impUrlInput.focus();  return alert('Please enter the Apps Script URL.'); }
+      if (!name) { impNameInput.focus(); return alert('Please enter your name.'); }
+      if (!code) { impCodeInput.focus(); return alert('Please enter your access code.'); }
+      if (!/^https:\/\/script\.google\.com\/macros\/s\//.test(url)) {
+        impUrlInput.focus();
+        return alert('That doesn\'t look like a valid Apps Script URL.\nIt should start with: https://script.google.com/macros/s/\u2026/exec');
+      }
+
+      impUploadBtn.disabled = true;
+      impResetBtn.disabled  = true;
+      impProgressWrap.classList.add('is-visible');
+      impProgressFill.style.width = '0%';
+      impProgressLbl.textContent  = 'Authenticating\u2026';
+
+      // Step 1: Authenticate
+      _apiFetch(url, { action: 'auth', name: name, code: code }, function (authRes) {
+        if (!authRes.success) {
+          _uploadFailed('Authentication failed: ' + (authRes.error || 'Invalid name or code.'));
+          return;
+        }
+        if (authRes.role !== 'manager') {
+          _uploadFailed('Import requires a Manager account. This account has role: ' + authRes.role);
+          return;
+        }
+
+        // Step 2: Batch upload rows in groups of 50
+        var BATCH      = 50;
+        var totalRows  = _impRows.length;
+        var totalBatch = Math.ceil(totalRows / BATCH);
+        var batchIdx   = 0;
+        var uploaded   = 0;
+        var errors     = 0;
+
+        function nextBatch() {
+          if (batchIdx >= totalBatch) {
+            impSetState('done');
+            impDoneSub.textContent = uploaded.toLocaleString() + ' row' + (uploaded === 1 ? '' : 's') + ' uploaded' +
+              (errors ? ' \u00b7 ' + errors + ' error' + (errors === 1 ? '' : 's') : '') + '.';
+            return;
+          }
+
+          var start = batchIdx * BATCH;
+          var end   = Math.min(start + BATCH, totalRows);
+          var batch = _impRows.slice(start, end);
+          batchIdx++;
+
+          var pct = Math.round((batchIdx - 1) / totalBatch * 100);
+          impProgressFill.style.width = pct + '%';
+          impProgressLbl.textContent  = 'Uploading rows ' + (start + 1) + '\u2013' + end + ' of ' + totalRows + '\u2026';
+
+          _apiFetch(url, { action: 'writeBatch', name: name, code: code, rows: batch },
+            function (res) {
+              if (res.success && Array.isArray(res.results)) {
+                res.results.forEach(function (r) { if (r.success) uploaded++; else errors++; });
+              } else {
+                errors += batch.length;
+              }
+              nextBatch();
+            },
+            function () { errors += batch.length; nextBatch(); }
+          );
+        }
+
+        nextBatch();
+      }, function (err) {
+        _uploadFailed('Network error: ' + err);
+      });
+    }
+
+    function _uploadFailed(msg) {
+      impUploadBtn.disabled = false;
+      impResetBtn.disabled  = false;
+      impProgressWrap.classList.remove('is-visible');
+      alert('Upload failed:\n\n' + msg);
+    }
+
+    function _apiFetch(url, payload, onSuccess, onError) {
+      fetch(url, {
+        method:  'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body:    JSON.stringify(payload)
+      })
+      .then(function (r) { return r.json(); })
+      .then(function (data) { if (onSuccess) onSuccess(data); })
+      .catch(function (err) { if (onError) onError(err.message || String(err)); });
+    }
+
+    function impReset() {
+      _impRows = [];
+      _impFilename = '';
+      impFileInput.value    = '';
+      impUploadBtn.disabled = false;
+      impResetBtn.disabled  = false;
+      impProgressWrap.classList.remove('is-visible');
+      impProgressFill.style.width = '0%';
+      impSetState('idle');
+    }
+
+    function _hesc(str) {
+      return String(str).replace(/&/g,'&amp;').replace(/</g,'&lt;')
+                        .replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+    }
+
+    // ── Event wiring ───────────────────────────────────────────────
+
+    impBrowseBtn.addEventListener('click', function (e) { e.stopPropagation(); impFileInput.click(); });
+    impDropZone.addEventListener('click', function (e) { if (e.target !== impBrowseBtn) impFileInput.click(); });
+    impDropZone.addEventListener('keydown', function (e) {
+      if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); impFileInput.click(); }
+    });
+    impFileInput.addEventListener('change', function () {
+      if (impFileInput.files && impFileInput.files[0]) {
+        handleImportFile(impFileInput.files[0]);
+        impFileInput.value = '';
+      }
+    });
+    impDropZone.addEventListener('dragenter', function (e) { e.preventDefault(); impSetState('dragover'); });
+    impDropZone.addEventListener('dragover',  function (e) { e.preventDefault(); impDropZone.classList.add('drag-over'); });
+    impDropZone.addEventListener('dragleave', function ()  { impDropZone.classList.remove('drag-over'); });
+    impDropZone.addEventListener('drop', function (e) {
+      e.preventDefault();
+      var f = e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files[0];
+      if (f) handleImportFile(f);
+      else impDropZone.classList.remove('drag-over');
+    });
+
+    impUploadBtn.addEventListener('click', uploadRows);
+    impResetBtn.addEventListener('click',  impReset);
+    impDoneReset.addEventListener('click', impReset);
+
+  }()); // end import module
+
 
   // ── Init ─────────────────────────────────────────────────────
   setState('idle');
