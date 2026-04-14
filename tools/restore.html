@@ -1351,11 +1351,13 @@
     // ── Column key ↔ header label map ─────────────────────────────
     // Built from COLUMNS array at runtime so it stays in sync.
 
-    var _keyMap = {};
+    var _keyMap     = {};
+    var _dateColKeys = {};  // set of column keys whose type === 'date'
 
     (function buildKeyMap() {
       COLUMNS.forEach(function (col) {
         _keyMap[col.key.toLowerCase().replace(/[\s_]+/g, ' ')] = col.key;
+        if (col.type === 'date') _dateColKeys[col.key] = true;
         _keyMap[col.label.toLowerCase().replace(/[\s_]+/g, ' ')] = col.key;
       });
 
@@ -1550,10 +1552,28 @@
         colMapping.forEach(function (cm) {
           var val = xlRow[cm.xCol];
           if (val instanceof Date) {
+            // cellDates:true converted a date-formatted cell to a JS Date
             var yy = val.getFullYear();
             var mm = String(val.getMonth() + 1).padStart(2, '0');
             var dd = String(val.getDate()).padStart(2, '0');
             rowObj[cm.key] = yy + '-' + mm + '-' + dd;
+          } else if (_dateColKeys[cm.key]) {
+            // Date column — check for Excel serial (numeric or numeric string)
+            var serial = typeof val === 'number' ? val : parseFloat(String(val).trim());
+            if (!isNaN(serial) && serial > 1 && serial < 99999 && String(val).trim() !== '') {
+              // Excel epoch: Dec 30, 1899 = day 0; JS epoch: Jan 1, 1970 = day 25569
+              var d = new Date(Math.round((serial - 25569) * 86400 * 1000));
+              if (!isNaN(d.getTime())) {
+                rowObj[cm.key] = d.getUTCFullYear() + '-' +
+                  String(d.getUTCMonth() + 1).padStart(2, '0') + '-' +
+                  String(d.getUTCDate()).padStart(2, '0');
+              } else {
+                rowObj[cm.key] = '';
+              }
+            } else {
+              // Already a formatted date string (or empty)
+              rowObj[cm.key] = (val === null || val === undefined) ? '' : String(val).trim();
+            }
           } else {
             rowObj[cm.key] = (val === null || val === undefined) ? '' : String(val).trim();
           }
