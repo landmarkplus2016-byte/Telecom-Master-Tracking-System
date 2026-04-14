@@ -1674,7 +1674,7 @@
     function _apiFetch(url, payload, onSuccess, onError) {
       fetch(url, {
         method:  'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'text/plain' }, // text/plain avoids CORS preflight — Apps Script parses body as JSON
         body:    JSON.stringify(payload)
       })
       .then(function (r) { return r.json(); })
