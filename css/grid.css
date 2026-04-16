@@ -133,8 +133,8 @@
 /* Excel-weight scrollbars — visible, functional, not giant.  */
 
 .handsontable .wtHolder::-webkit-scrollbar {
-  width: 17px;
-  height: 17px;
+  width: 13px;
+  height: 13px;
 }
 
 .handsontable .wtHolder::-webkit-scrollbar-track {
@@ -200,27 +200,6 @@
   background: var(--bg-navy) !important;
   color: #ffffff !important;
   font-weight: 600 !important;
-}
-
-/* ── Frozen-column / horizontal-scrollbar alignment fix ──── */
-/* HOT sets .ht_clone_left height = full container height     */
-/* via inline style, ignoring the horizontal scrollbar (17px) */
-/* at the bottom. This makes the frozen columns render one    */
-/* extra strip below the last visible data row.               */
-/* Fix: override the inline height so the clone stops exactly */
-/* where the scrollbar begins (bottom: 17px from container).  */
-
-.ht_clone_left {
-  bottom: 17px !important;  /* scrollbar height */
-  height: auto !important;  /* overrides HOT's inline height: Xpx */
-}
-
-/* The top-left corner sits above both frozen rows and columns.
-   It must NOT be clipped — it only covers the header row area,
-   which has no horizontal scrollbar concern. */
-.ht_clone_top_left_corner {
-  bottom: auto !important;
-  height: auto !important; /* let HOT control it normally */
 }
 
 /* ── Column resize handle ────────────────────────────────── */

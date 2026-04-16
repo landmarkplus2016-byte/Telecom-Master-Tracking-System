@@ -178,14 +178,12 @@ var Grid = (function () {
       }
     }
 
-    // Re-measure dimensions after data loads.
-    // stretchH:'all' calculates column widths at init when there is no
-    // scrollbar yet. Once rows appear and the vertical scrollbar (17px)
-    // kicks in, HOT's stretching doesn't know about it — columns fill the
-    // full container width and the scrollbar overlaps the last column.
-    // refreshDimensions() recalculates with the scrollbar visible.
+    // Re-measure dimensions after data loads so stretchH:'all' and the
+    // left-clone height both account for the scrollbars (which only appear
+    // once there is enough data to require scrolling).
     setTimeout(function () {
       if (_hot) _hot.refreshDimensions();
+      _fixLeftCloneHeight();
     }, 0);
   }
 
@@ -812,6 +810,36 @@ var Grid = (function () {
     container.style.height = h + 'px';
 
     if (_hot) _hot.render();
+
+    // Fix frozen-column clone height after every render.
+    // HOT sets .ht_clone_left height = full container height via inline
+    // style, unaware of the horizontal scrollbar occupying the bottom
+    // N px. This makes the frozen columns extend below the last data row.
+    // Defer to next tick so HOT finishes its own layout pass first.
+    setTimeout(_fixLeftCloneHeight, 0);
+  }
+
+  function _fixLeftCloneHeight() {
+    var container = document.getElementById('grid-container');
+    if (!container) return;
+
+    var leftClone    = container.querySelector('.ht_clone_left');
+    var masterHolder = container.querySelector('.ht_master .wtHolder');
+    if (!leftClone || !masterHolder) return;
+
+    // Measure actual horizontal scrollbar height (0 when not visible)
+    var hBarH = masterHolder.offsetHeight - masterHolder.clientHeight;
+    if (hBarH <= 0) return;
+
+    // HOT wrote an inline height — read it, subtract the scrollbar height
+    var cloneH = parseInt(leftClone.style.height, 10);
+    if (!cloneH || isNaN(cloneH)) return;
+
+    var target = cloneH - hBarH;
+    // Only write if different to avoid triggering another HOT render
+    if (parseInt(leftClone.style.height, 10) !== target) {
+      leftClone.style.height = target + 'px';
+    }
   }
 
   // ── Row save ──────────────────────────────────────────────
