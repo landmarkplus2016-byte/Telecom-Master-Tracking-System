@@ -3,6 +3,22 @@
    Telecom Coordinator Tracking App
    ============================================================ */
 
+/* ── Frozen column drift fix ─────────────────────────────── */
+/* Without border-box on all cells, the master and frozen      */
+/* panels calculate cell heights differently, causing          */
+/* cumulative vertical drift as the user scrolls.              */
+
+.handsontable .htCore td,
+.handsontable .htCore th,
+.ht_clone_left .htCore td,
+.ht_clone_left .htCore th {
+  box-sizing: border-box !important;
+}
+
+.ht_clone_left {
+  z-index: 101;
+}
+
 /* ── Row number + corner headers — navy matching col headers */
 /* grid.js also targets .rowHeader; grid.css wins via higher   */
 /* specificity on .ht_clone_left th for the left clone.        */

@@ -578,6 +578,7 @@ var Grid = (function () {
       autoWrapCol:        false,
       rowHeights:         24,
       autoRowSize:        false,
+      autoColumnSize:     false,
       minSpareRows:       0,
       licenseKey:         'non-commercial-and-evaluation',
 
