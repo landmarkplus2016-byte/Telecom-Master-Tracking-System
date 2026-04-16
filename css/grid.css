@@ -130,27 +130,76 @@
 }
 
 /* ── HOT grid scrollbar ─────────────────────────────────── */
-/* Thin scrollbar on the HOT master container.               */
+/* Excel-weight scrollbars — visible, functional, not giant.  */
 
 .handsontable .wtHolder::-webkit-scrollbar {
-  width: 7px;
-  height: 7px;
+  width: 13px;
+  height: 13px;
 }
 
 .handsontable .wtHolder::-webkit-scrollbar-track {
-  background: var(--bg-base);
+  background: #e8ecf0;
+  border-left: 1px solid var(--border);
 }
 
 .handsontable .wtHolder::-webkit-scrollbar-thumb {
-  background: var(--border);
+  background: #a0aab8;
+  border: 2px solid #e8ecf0;   /* inset gap, Excel-style */
+  border-radius: 2px;
 }
 
 .handsontable .wtHolder::-webkit-scrollbar-thumb:hover {
-  background: var(--text-secondary);
+  background: #6a7a90;
+}
+
+.handsontable .wtHolder::-webkit-scrollbar-thumb:active {
+  background: var(--bg-navy);
 }
 
 .handsontable .wtHolder::-webkit-scrollbar-corner {
-  background: var(--bg-base);
+  background: #e8ecf0;
+  border-top: 1px solid var(--border);
+  border-left: 1px solid var(--border);
+}
+
+/* ── Autocomplete / dropdown cell editor ─────────────────── */
+/* HOT renders per-column dropdown lists in .handsontable.    */
+/* listbox — white bg + shadow so it's clearly legible.       */
+
+.handsontable.listbox {
+  background: #ffffff !important;
+  border: 1px solid #b0b8c8 !important;
+  box-shadow: 0 6px 20px rgba(10, 20, 35, 0.18) !important;
+  border-radius: 0 !important;
+  z-index: 9999 !important;
+}
+
+/* Each list item */
+.handsontable.listbox .htCore td {
+  background: #ffffff !important;
+  color: #1a2e4a !important;             /* navy — high contrast */
+  font-family: var(--font-body) !important;
+  font-size: 12px !important;
+  font-weight: 400 !important;
+  padding: 5px 12px !important;
+  border-bottom: 1px solid #eaeef4 !important;
+  cursor: pointer !important;
+  white-space: nowrap !important;
+}
+
+/* Hover — blue-grey tint like Excel */
+.handsontable.listbox .htCore tr:hover td,
+.handsontable.listbox .htCore td.htAutocomplete:hover {
+  background: #d8e8f8 !important;
+  color: #0f1e30 !important;
+}
+
+/* Selected / current item — navy fill, white text */
+.handsontable.listbox .htCore td.current,
+.handsontable.listbox .htCore tr.current td {
+  background: var(--bg-navy) !important;
+  color: #ffffff !important;
+  font-weight: 600 !important;
 }
 
 /* ── Column resize handle ────────────────────────────────── */
