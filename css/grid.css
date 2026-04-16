@@ -19,17 +19,6 @@
   z-index: 101;
 }
 
-/* Dropdown cells in the main panel add extra internal padding that
-   makes them render taller than plain cells in the frozen panel,
-   causing cumulative drift. Lock every cell to exactly rowHeights:24. */
-.handsontable td,
-.handsontable th {
-  line-height: 21px !important;
-  height: 24px !important;
-  max-height: 24px !important;
-  overflow: hidden !important;
-}
-
 /* ── Row number + corner headers — navy matching col headers */
 /* grid.js also targets .rowHeader; grid.css wins via higher   */
 /* specificity on .ht_clone_left th for the left clone.        */

@@ -762,6 +762,18 @@ var Grid = (function () {
         _updateRowCount(_hot.countRows());
       },
 
+      // ── Scroll sync — frozen panel drift fix ─────────────────
+      // HOT CE bug: the left overlay panel can fall out of vertical
+      // sync with the main panel on fast scroll. Force-sync scrollTop
+      // after every vertical scroll event.
+      afterScrollVertically: function () {
+        var mainHolder  = this.view.wt.wtTable.holder;
+        var leftOverlay = this.view.wt.wtOverlays.leftOverlay;
+        if (leftOverlay && leftOverlay.clone) {
+          leftOverlay.clone.wtTable.holder.scrollTop = mainHolder.scrollTop;
+        }
+      },
+
       // Per-cell properties: read-only enforcement + visual classes.
       cells: function (row, col) {
         var colDef = _visibleCols[col];
