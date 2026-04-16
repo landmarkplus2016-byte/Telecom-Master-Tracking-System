@@ -370,7 +370,6 @@
         '}',
         '#grid-container {',
           'flex: 1;',
-          'overflow: hidden;',
         '}',
         '.app-username {',
           'font-family: var(--font-body);',

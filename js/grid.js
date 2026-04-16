@@ -177,6 +177,16 @@ var Grid = (function () {
         _applyPricing(i);
       }
     }
+
+    // Re-measure dimensions after data loads.
+    // stretchH:'all' calculates column widths at init when there is no
+    // scrollbar yet. Once rows appear and the vertical scrollbar (17px)
+    // kicks in, HOT's stretching doesn't know about it — columns fill the
+    // full container width and the scrollbar overlaps the last column.
+    // refreshDimensions() recalculates with the scrollbar visible.
+    setTimeout(function () {
+      if (_hot) _hot.refreshDimensions();
+    }, 0);
   }
 
   /**
@@ -1427,10 +1437,10 @@ var Grid = (function () {
       // HOT needs an explicit pixel height on the mount div.
       // We set it via JS after render so it always matches the
       // actual available space.
+      // overflow is intentionally NOT set here — #app-body clips the container
+      // and overflow:hidden would clip HOT's own scrollbars on the right/bottom.
       '#grid-container {',
         'position: relative;',
-        'overflow: hidden;',
-        // flex:1 alone is not enough for HOT — height is set by _fitContainer()
       '}',
 
       // ── Cell overrides ───────────────────────────────────────
