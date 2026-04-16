@@ -789,13 +789,15 @@ var Grid = (function () {
   // Calculate it from the viewport minus header and status bar.
 
   function _fitContainer() {
-    var container  = document.getElementById('grid-container');
-    var header     = document.getElementById('app-header');
-    var statusbar  = document.getElementById('app-statusbar');
+    var container   = document.getElementById('grid-container');
+    var header      = document.getElementById('app-header');
+    var filterPanel = document.getElementById('filter-panel');
+    var statusbar   = document.getElementById('app-statusbar');
     if (!container) return;
 
-    var usedHeight = (header    ? header.offsetHeight    : 48)
-                   + (statusbar ? statusbar.offsetHeight : 28);
+    var usedHeight = (header      ? header.offsetHeight      : 48)
+                   + (filterPanel ? filterPanel.offsetHeight : 34)
+                   + (statusbar   ? statusbar.offsetHeight   : 28);
     var h = window.innerHeight - usedHeight;
     container.style.height = h + 'px';
 
