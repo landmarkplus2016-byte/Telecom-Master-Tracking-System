@@ -133,8 +133,8 @@
 /* Excel-weight scrollbars — visible, functional, not giant.  */
 
 .handsontable .wtHolder::-webkit-scrollbar {
-  width: 13px;
-  height: 13px;
+  width: 17px;
+  height: 17px;
 }
 
 .handsontable .wtHolder::-webkit-scrollbar-track {
