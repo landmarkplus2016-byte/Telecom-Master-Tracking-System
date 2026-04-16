@@ -47,6 +47,7 @@ var Filters = (function () {
     _injectSearchBar();
     _injectStyles();
     _wireFilterBtn();
+    _refreshPanel();   // render idle state immediately — no filter = no white gap
   }
 
   /**
@@ -197,20 +198,25 @@ var Filters = (function () {
     var panel = document.getElementById('filter-panel');
     if (!panel) return;
 
-    var term        = _searchTerm.trim();
-    var hasSearch   = !!term;
+    var term         = _searchTerm.trim();
+    var hasSearch    = !!term;
     var hasColFilter = _hotFilterCount > 0;
-    var hasAny      = hasSearch || hasColFilter;
+    var hasAny       = hasSearch || hasColFilter;
 
+    // ── Idle state — no active filters ────────────────────────
     if (!hasAny) {
-      panel.setAttribute('hidden', '');
-      panel.setAttribute('aria-hidden', 'true');
-      panel.innerHTML = '';
       _panelOpen = false;
+      panel.innerHTML = [
+        '<div class="fp-inner fp-inner--idle">',
+          '<span class="fp-idle-dot" aria-hidden="true">&#9679;</span>',
+          '<span class="fp-label">Active Filters</span>',
+          '<span class="fp-idle-text">&#8212; none</span>',
+        '</div>',
+      ].join('');
       return;
     }
 
-    // Build status parts
+    // ── Active state — build filter badges ────────────────────
     var parts = [];
     if (hasSearch) {
       parts.push(
@@ -232,14 +238,12 @@ var Filters = (function () {
       );
     }
 
-    panel.removeAttribute('hidden');
-    panel.removeAttribute('aria-hidden');
     _panelOpen = true;
 
     panel.innerHTML = [
       '<div class="fp-inner">',
         '<span class="fp-active-dot" aria-hidden="true">&#9679;</span>',
-        '<span class="fp-label">Active filters:</span>',
+        '<span class="fp-label">Active Filters:</span>',
         '<span class="fp-badges">', parts.join(''), '</span>',
         '<button class="fp-clear-all" id="fp-clear-all">Clear All</button>',
       '</div>',
@@ -259,22 +263,19 @@ var Filters = (function () {
           _refreshPanel();
           _refreshFilterBtn();
         } else if (type === 'col') {
-          // Clear only HOT column filters — preserve the active global search.
-          // Strategy: clear all (which also resets global search), then re-apply
-          // the global search term so only the HOT conditions are gone.
+          // Clear only HOT column filters — preserve active global search.
           var savedTerm = _searchTerm;
           _hotFilterCount = 0;
           if (typeof Grid !== 'undefined') {
-            Grid.clearAllFilters(); // clears HOT column filters + global search predicate
+            Grid.clearAllFilters();
             if (savedTerm.trim()) {
-              // Re-apply the saved global search
               _searchTerm = savedTerm;
-              var input    = document.getElementById('gs-input');
-              var gsClear  = document.getElementById('gs-clear');
+              var input   = document.getElementById('gs-input');
+              var gsClear = document.getElementById('gs-clear');
               if (input) input.value = savedTerm;
               _toggleClearBtn(gsClear, true);
-              _applySearch(); // calls Grid.applyGlobalSearch again
-              return; // _applySearch calls _refreshPanel and _refreshFilterBtn
+              _applySearch();
+              return;
             }
           }
           _refreshPanel();
@@ -390,17 +391,16 @@ var Filters = (function () {
       '}',
       '.gs-clear:hover { color: var(--text-on-navy); }',
 
-      // ── Filter status panel ───────────────────────────────
+      // ── Filter status panel (always visible) ─────────────
       '#filter-panel {',
-        'height: 36px;',
+        'height: 34px;',
         'flex-shrink: 0;',
-        'border-bottom: 1px solid var(--border);',
-        'background: var(--bg-surface);',
+        'border-bottom: 2px solid var(--border);',
+        'background: var(--bg-base);',
         'display: flex;',
         'align-items: center;',
         'overflow: hidden;',
       '}',
-      '#filter-panel[hidden] { display: none !important; }',
 
       '.fp-inner {',
         'display: flex;',
@@ -409,6 +409,21 @@ var Filters = (function () {
         'padding: 0 16px;',
         'width: 100%;',
         'height: 100%;',
+      '}',
+
+      // Idle state
+      '.fp-idle-dot {',
+        'font-size: 7px;',
+        'color: var(--border);',
+        'line-height: 1;',
+        'flex-shrink: 0;',
+      '}',
+      '.fp-idle-text {',
+        'font-family: var(--font-body);',
+        'font-size: 11px;',
+        'font-style: italic;',
+        'color: var(--text-secondary);',
+        'opacity: 0.6;',
       '}',
 
       '.fp-active-dot {',

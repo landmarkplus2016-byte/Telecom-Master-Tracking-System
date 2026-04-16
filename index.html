@@ -314,9 +314,9 @@
   <div id="app-body">
 
     <!-- Filter panel (js/filters.js — Stage 4)             -->
-    <!-- Slides in from top when "Filter" button is toggled  -->
-    <aside id="filter-panel" aria-hidden="true">
-      <!-- Column filter controls injected by js/filters.js -->
+    <!-- Always-visible ribbon; content injected by filters.js -->
+    <aside id="filter-panel">
+      <!-- Populated immediately by Filters.init() in js/filters.js -->
     </aside>
 
     <!-- Handsontable mount point (js/grid.js) -->
