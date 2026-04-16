@@ -576,10 +576,12 @@ var Grid = (function () {
       selectionMode:      'multiple',
       autoWrapRow:        false,
       autoWrapCol:        false,
-      rowHeights:         24,
-      autoRowSize:        false,
-      autoColumnSize:     false,
-      minSpareRows:       0,
+      rowHeights:                  24,
+      autoRowSize:                 false,
+      autoColumnSize:              false,
+      renderAllRows:               false,
+      viewportRowRenderingOffset:  10,
+      minSpareRows:                0,
       licenseKey:         'non-commercial-and-evaluation',
 
       // Freeze first 2 columns (ID + Logical Site ID)
