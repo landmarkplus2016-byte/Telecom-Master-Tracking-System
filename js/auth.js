@@ -96,7 +96,7 @@ var Auth = (function () {
         // Left panel — branding strip
         '<div class="login-brand">',
           '<div class="login-brand-inner">',
-            '<img src="LMP%20Big%20Logo.png" alt="LMP Logo" class="login-brand-logo">',
+            '<img src="LMP%20Big%20Logo.jpg" alt="LMP Logo" class="login-brand-logo">',
             '<div class="login-brand-eyebrow">Telecom Department</div>',
             '<div class="login-brand-title">Tracking<br>System</div>',
             '<div class="login-brand-rule"></div>',
@@ -344,10 +344,13 @@ var Auth = (function () {
 
       '.login-brand-logo {',
         'display: block;',
-        'width: 160px;',
+        'width: 200px;',
         'max-width: 100%;',
         'margin-bottom: 28px;',
-        'border-radius: 6px;',
+        'border-radius: 10px;',
+        'background: #ffffff;',
+        'padding: 10px 16px;',
+        'box-shadow: 0 4px 20px rgba(0,0,0,0.25);',
       '}',
 
       '.login-brand-eyebrow {',
