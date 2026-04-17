@@ -347,8 +347,7 @@ var Auth = (function () {
         'width: 160px;',
         'max-width: 100%;',
         'margin-bottom: 28px;',
-        'opacity: 0.95;',
-        'filter: brightness(0) invert(1);',
+        'border-radius: 6px;',
       '}',
 
       '.login-brand-eyebrow {',
