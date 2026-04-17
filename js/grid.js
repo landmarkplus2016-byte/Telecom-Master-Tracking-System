@@ -584,8 +584,7 @@ var Grid = (function () {
       minSpareRows:                0,
       licenseKey:         'non-commercial-and-evaluation',
 
-      // Freeze first 2 columns (ID + Logical Site ID)
-      fixedColumnsLeft:   2,
+      fixedColumnsLeft:   0,
 
       // ── Column filters ────────────────────────────────────
       // filters: true enables the Filters plugin.
@@ -795,18 +794,6 @@ var Grid = (function () {
       },
     });
 
-    // ── Frozen column scroll sync (DOM-based) ─────────────────
-    // HOT CE bug: this.view.wt.wtOverlays is unavailable in v14,
-    // so the afterScrollVertically hook cannot be used. Instead,
-    // listen on the master wtHolder directly and mirror scrollTop
-    // to the left overlay's wtHolder on every scroll event.
-    var mainHolder  = container.querySelector('.wtHolder');
-    var leftOverlay = container.querySelector('.ht_clone_left .wtHolder');
-    if (mainHolder && leftOverlay) {
-      mainHolder.addEventListener('scroll', function () {
-        leftOverlay.scrollTop = mainHolder.scrollTop;
-      });
-    }
   }
 
   // ── Container sizing ─────────────────────────────────────
