@@ -96,13 +96,15 @@ var Auth = (function () {
         // Left panel — branding strip
         '<div class="login-brand">',
           '<div class="login-brand-inner">',
-            '<img src="LMP%20Big%20Logo.jpg" alt="LMP Logo" class="login-brand-logo">',
             '<div class="login-brand-eyebrow">Telecom Department</div>',
             '<div class="login-brand-title">Tracking<br>System</div>',
             '<div class="login-brand-rule"></div>',
             '<div class="login-brand-sub">Coordinator Workspace</div>',
           '</div>',
         '</div>',
+
+        // Logo watermark — bottom right
+        '<img src="LMP%20Big%20Logo-Photoroom.png" alt="LMP Logo" class="login-brand-logo">',
 
         // Right panel — login form
         '<div class="login-panel">',
@@ -317,11 +319,10 @@ var Auth = (function () {
         'background: var(--bg-navy);',
         'display: flex;',
         'align-items: center;',
-        'justify-content: flex-start;',
+        'justify-content: center;',
         'padding: 56px 48px;',
         'position: relative;',
         'overflow: hidden;',
-        // Dot-grid texture matching loading screen
         'background-image: radial-gradient(circle, rgba(255,255,255,0.07) 1px, transparent 1px);',
         'background-size: 28px 28px;',
         'background-color: var(--bg-navy);',
@@ -340,17 +341,17 @@ var Auth = (function () {
       '.login-brand-inner {',
         'position: relative;',
         'z-index: 1;',
+        'text-align: center;',
       '}',
 
       '.login-brand-logo {',
-        'display: block;',
-        'width: 200px;',
-        'max-width: 100%;',
-        'margin-bottom: 28px;',
-        'border-radius: 10px;',
-        'background: #ffffff;',
-        'padding: 10px 16px;',
-        'box-shadow: 0 4px 20px rgba(0,0,0,0.25);',
+        'position: fixed;',
+        'bottom: 24px;',
+        'right: 28px;',
+        'width: 160px;',
+        'opacity: 0.55;',
+        'z-index: 10;',
+        'pointer-events: none;',
       '}',
 
       '.login-brand-eyebrow {',
@@ -377,7 +378,7 @@ var Auth = (function () {
         'width: 48px;',
         'height: 2px;',
         'background: var(--accent);',
-        'margin: 20px 0 16px;',
+        'margin: 20px auto 16px;',
         'opacity: 0.7;',
       '}',
 
