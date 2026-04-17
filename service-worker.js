@@ -27,7 +27,7 @@
 // Bump CACHE_VERSION to force a full cache refresh on deploy.
 // Old cache names are deleted in the activate handler.
 
-var CACHE_VERSION = 'v11';
+var CACHE_VERSION = 'v12';
 var CACHE_NAME    = 'telecom-tracker-' + CACHE_VERSION;
 
 // ── App shell — files to pre-cache on install ─────────────
@@ -74,7 +74,7 @@ var APP_SHELL = [
   './icons/icon-512.png',
 
   // Logo
-  './LMP%20Big%20Logo.png',
+  './LMP%20Big%20Logo-Photoroom.png',
 
   // CDN — Handsontable Community Edition
   'https://cdn.jsdelivr.net/npm/handsontable@14.3.0/dist/handsontable.full.min.css',
