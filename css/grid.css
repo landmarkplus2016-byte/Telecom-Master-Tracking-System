@@ -52,13 +52,13 @@
 /* the added :hover pseudo-class wins by one specificity pt) */
 
 .handsontable .htCore tbody tr:hover td:not(.row-locked):not(.row-changed) {
-  background-color: var(--accent-dim) !important;
+  background-color: var(--hover-row, var(--accent-dim)) !important;
 }
 
 /* Even rows — matches zebra selector exactly + :hover so it */
 /* beats the zebra rule by one specificity point.            */
 .handsontable .htCore tbody tr:nth-child(even):hover td:not(.row-locked):not(.row-changed):not(.cell-jc-error):not(.cell-readonly) {
-  background-color: var(--accent-dim) !important;
+  background-color: var(--hover-row, var(--accent-dim)) !important;
 }
 
 /* Row number header — matching highlight on the left clone  */

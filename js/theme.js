@@ -134,19 +134,21 @@ var Theme = (function () {
     _injectStyles();
     panel.appendChild(anchor);
 
-    // Close on outside click
+    // Close when clicking outside both the anchor AND the floating panel.
+    // The panel is appended to document.body (fixed positioning) so it
+    // lives outside the anchor — both must be checked.
     document.addEventListener('click', function (e) {
-      var anchor = document.getElementById('theme-dropdown-anchor');
-      if (_open && anchor && !anchor.contains(e.target)) {
-        _closePanel();
-      }
+      if (!_open) return;
+      var anch  = document.getElementById('theme-dropdown-anchor');
+      var pnl   = document.getElementById('theme-dropdown-panel');
+      var inAnch = anch && anch.contains(e.target);
+      var inPnl  = pnl  && pnl.contains(e.target);
+      if (!inAnch && !inPnl) _closePanel();
     });
 
     // Close on Escape
     document.addEventListener('keydown', function (e) {
-      if (_open && (e.key === 'Escape' || e.keyCode === 27)) {
-        _closePanel();
-      }
+      if (_open && (e.key === 'Escape' || e.keyCode === 27)) _closePanel();
     });
   }
 
@@ -192,17 +194,33 @@ var Theme = (function () {
   // ── Open / close panel ────────────────────────────────────
 
   function _openPanel() {
-    var anchor = document.getElementById('theme-dropdown-anchor');
-    if (!anchor) return;
+    var btn = document.getElementById('theme-dropdown-btn');
+    if (!btn) return;
 
     var existing = document.getElementById('theme-dropdown-panel');
     if (existing) existing.parentNode.removeChild(existing);
 
-    var panel  = _buildPanel();
-    anchor.appendChild(panel);
+    var panel = _buildPanel();
+
+    // #app-body and #screen-app both have overflow:hidden which clips
+    // absolutely-positioned children. Fix: use position:fixed anchored
+    // to the button's screen coordinates so the panel escapes all clipping.
+    var rect   = btn.getBoundingClientRect();
+    var pWidth = 240; // matches CSS width
+
+    panel.style.position = 'fixed';
+    panel.style.width    = pWidth + 'px';
+    // Open downward — ribbon is near the top so there's more space below
+    panel.style.top      = (rect.bottom + 2) + 'px';
+    panel.style.bottom   = 'auto';
+    // Align right edge of panel with right edge of button; clamp to viewport
+    var rightOffset = window.innerWidth - rect.right;
+    panel.style.right = Math.max(4, rightOffset) + 'px';
+    panel.style.left  = 'auto';
+
+    document.body.appendChild(panel);
     _open = true;
 
-    var btn = document.getElementById('theme-dropdown-btn');
     if (btn) btn.setAttribute('aria-expanded', 'true');
   }
 
@@ -337,22 +355,21 @@ var Theme = (function () {
         'margin-left: 2px;',
       '}',
 
-      /* ── Dropdown panel ── */
+      /* ── Dropdown panel ─────────────────────────────────────── */
+      /* position/top/bottom/right are set inline by _openPanel   */
+      /* using getBoundingClientRect so it escapes overflow:hidden */
       '#theme-dropdown-panel {',
-        'position: absolute;',
-        'bottom: calc(100% + 4px);',  /* opens upward from the ribbon */
-        'right: 0;',
         'width: 240px;',
         'background: var(--bg-surface);',
         'border: 1px solid var(--border);',
-        'box-shadow: 0 -8px 32px rgba(10,20,35,0.18);',
-        'z-index: 800;',
+        'box-shadow: 0 8px 32px rgba(10,20,35,0.18);',
+        'z-index: 8000;',
         'animation: tdp-in 0.14s ease-out;',
       '}',
 
       '@keyframes tdp-in {',
-        'from { opacity:0; transform: translateY(6px); }',
-        'to   { opacity:1; transform: translateY(0);   }',
+        'from { opacity:0; transform: translateY(-6px); }',
+        'to   { opacity:1; transform: translateY(0);    }',
       '}',
 
       /* Panel header */
