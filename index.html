@@ -29,6 +29,9 @@
   <link rel="stylesheet" href="css/forms.css">
   <link rel="stylesheet" href="css/filters.css">
 
+  <!-- ── Theme: set data-theme before first paint (no FOUC) ── -->
+  <script>(function(){var t=localStorage.getItem('app_theme');if(t&&t!=='navy')document.documentElement.setAttribute('data-theme',t);}());</script>
+
   <!-- ── Critical: Loading screen inline ──────────────────── -->
   <!-- Inlined so the loading screen renders before CSS loads -->
   <style>
@@ -230,6 +233,96 @@
 
     /* ── Utility: hide/show screens ─────────────────────── */
     [hidden] { display: none !important; }
+
+    /* ══════════════════════════════════════════════════════
+       THEME OVERRIDES
+       Each block overrides only the variables that differ
+       from the :root defaults above. The selector
+       html[data-theme="xxx"] has higher specificity than
+       :root so it always wins without !important.
+       ══════════════════════════════════════════════════════ */
+
+    /* ── Blue (#4472C4) ──────────────────────────────────── */
+    html[data-theme="blue"] {
+      --bg-navy:          #1e3a6e;
+      --bg-navy-deep:     #152d57;
+      --bg-navy-mid:      #2d5299;
+      --bg-header:        #1e3a6e;
+      --border-navy:      #2d4a80;
+      --accent:           #4472c4;
+      --accent-bright:    #5a8fd8;
+      --accent-dim:       rgba(68, 114, 196, 0.15);
+      --bg-base:          #f0f4fa;
+      --bg-zebra:         #e8eef8;
+      --bg-zebra-readonly:#e0eaf5;
+      --text-primary:     #1e3a6e;
+      --text-secondary:   #4a5a78;
+      --text-on-navy:     #e8f0ff;
+      --text-muted-navy:  #9ab0d8;
+    }
+
+    /* ── Dark Mode ───────────────────────────────────────── */
+    html[data-theme="dark"] {
+      --bg-base:          #0d1117;
+      --bg-surface:       #161b22;
+      --bg-header:        #21262d;
+      --bg-navy:          #21262d;
+      --bg-navy-deep:     #161b22;
+      --bg-navy-mid:      #30363d;
+      --border:           #30363d;
+      --border-navy:      #444c56;
+      --accent:           #c9973a;
+      --accent-bright:    #e8b04a;
+      --accent-dim:       rgba(201, 151, 58, 0.18);
+      --bg-zebra:         #1a2030;
+      --bg-zebra-readonly:#161f2c;
+      --text-primary:     #e6edf3;
+      --text-secondary:   #8b949e;
+      --text-on-navy:     #e6edf3;
+      --text-muted-navy:  #8b949e;
+      --color-success:    #3fb950;
+      --color-error:      #f85149;
+    }
+
+    /* ── Green ───────────────────────────────────────────── */
+    html[data-theme="green"] {
+      --bg-navy:          #1a3a2a;
+      --bg-navy-deep:     #0f2a1c;
+      --bg-navy-mid:      #2a4d38;
+      --bg-header:        #1a3a2a;
+      --border-navy:      #2d5040;
+      --accent:           #4a9e6a;
+      --accent-bright:    #5dba80;
+      --accent-dim:       rgba(74, 158, 106, 0.15);
+      --bg-base:          #f0f5f2;
+      --bg-zebra:         #e5f0e8;
+      --bg-zebra-readonly:#ddeae0;
+      --text-primary:     #1a3a2a;
+      --text-secondary:   #3a5a48;
+      --text-on-navy:     #e0f0e8;
+      --text-muted-navy:  #8ab8a0;
+    }
+
+    /* ── Purple / Pink ───────────────────────────────────── */
+    html[data-theme="purple"] {
+      --bg-navy:          #2d1b4e;
+      --bg-navy-deep:     #1e1035;
+      --bg-navy-mid:      #3d2666;
+      --bg-header:        #2d1b4e;
+      --border-navy:      #4a3070;
+      --accent:           #9b59d0;
+      --accent-bright:    #b47ee8;
+      --accent-dim:       rgba(155, 89, 208, 0.15);
+      --bg-base:          #f5f2fa;
+      --bg-zebra:         #ede8f8;
+      --bg-zebra-readonly:#e5def5;
+      --border:           #e2d8f0;
+      --text-primary:     #2d1b4e;
+      --text-secondary:   #6b5a85;
+      --text-on-navy:     #ede8f8;
+      --text-muted-navy:  #a98fd4;
+    }
+
   </style>
 </head>
 
@@ -426,6 +519,9 @@
 
 <!-- Background services -->
 <script src="js/backup.js"></script>
+
+<!-- Theme selector (before app.js so Theme is available in _renderHeader) -->
+<script src="js/theme.js"></script>
 
 <!-- App init — must be last -->
 <script src="js/app.js"></script>

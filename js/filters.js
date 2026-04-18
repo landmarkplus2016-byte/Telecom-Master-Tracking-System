@@ -198,6 +198,12 @@ var Filters = (function () {
     var panel = document.getElementById('filter-panel');
     if (!panel) return;
 
+    // Preserve the theme dropdown — panel.innerHTML wipes it otherwise
+    var themeAnchor = document.getElementById('theme-dropdown-anchor');
+    if (themeAnchor && themeAnchor.parentNode === panel) {
+      panel.removeChild(themeAnchor);
+    }
+
     var term         = _searchTerm.trim();
     var hasSearch    = !!term;
     var hasColFilter = _hotFilterCount > 0;
@@ -213,6 +219,7 @@ var Filters = (function () {
           '<span class="fp-idle-text">&#8212; none</span>',
         '</div>',
       ].join('');
+      if (themeAnchor) panel.appendChild(themeAnchor);
       return;
     }
 
@@ -248,6 +255,7 @@ var Filters = (function () {
         '<button class="fp-clear-all" id="fp-clear-all">Clear All</button>',
       '</div>',
     ].join('');
+    if (themeAnchor) panel.appendChild(themeAnchor);
 
     // Wire individual badge remove buttons
     panel.querySelectorAll('.fp-badge-remove').forEach(function (btn) {

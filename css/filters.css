@@ -18,10 +18,11 @@
 
 #filter-panel {
   flex-shrink: 0;
-  overflow: hidden;
+  overflow: visible;        /* allows theme dropdown to open outside the ribbon */
+  position: relative;       /* anchor for the absolutely-positioned dropdown panel */
   height: 34px;
   border-bottom: 2px solid var(--border);
-  background: var(--bg-base);   /* cool grey — distinct from the white grid */
+  background: var(--bg-surface);
   display: flex;
   align-items: center;
 }
@@ -33,6 +34,7 @@
   padding: 0 16px;
   width: 100%;
   height: 100%;
+  overflow: hidden;         /* clip long filter badges — theme anchor sits outside */
 }
 
 /* Orange dot — active filter present */

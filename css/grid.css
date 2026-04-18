@@ -44,18 +44,40 @@
   border-bottom: 2px solid rgba(201, 151, 58, 0.55) !important;
 }
 
+/* ── Row hover highlight ────────────────────────────────── */
+/* Subtle accent tint on the hovered row. Excluded from      */
+/* locked rows (already grey) and changed rows (amber tint). */
+/* Two rules needed: odd rows (lower specificity is enough)  */
+/* and even rows (must match zebra's full :not() chain so    */
+/* the added :hover pseudo-class wins by one specificity pt) */
+
+.handsontable .htCore tbody tr:hover td:not(.row-locked):not(.row-changed) {
+  background-color: var(--accent-dim) !important;
+}
+
+/* Even rows — matches zebra selector exactly + :hover so it */
+/* beats the zebra rule by one specificity point.            */
+.handsontable .htCore tbody tr:nth-child(even):hover td:not(.row-locked):not(.row-changed):not(.cell-jc-error):not(.cell-readonly) {
+  background-color: var(--accent-dim) !important;
+}
+
+/* Row number header — matching highlight on the left clone  */
+.ht_clone_left tbody tr:hover th {
+  background-color: rgba(255, 255, 255, 0.22) !important;
+}
+
 /* ── Zebra striping — even data rows ────────────────────── */
 /* Alternating cool tint makes wide rows far easier to scan.  */
 /* :not() exclusions ensure semantic state classes (locked,   */
 /* error, changed, readonly) always override the stripe.      */
 .handsontable .htCore tbody tr:nth-child(even) td:not(.row-locked):not(.cell-jc-error):not(.row-changed):not(.cell-readonly) {
-  background-color: #f0f5fc !important;
+  background-color: var(--bg-zebra, #f0f5fc) !important;
 }
 
 /* Even rows, read-only variant — slightly deeper tint keeps  */
 /* the readonly cue visible against the zebra background.     */
 .handsontable .htCore tbody tr:nth-child(even) td.cell-readonly {
-  background-color: #e8eef8 !important;
+  background-color: var(--bg-zebra-readonly, #e8eef8) !important;
 }
 
 /* ── Selected area cells ────────────────────────────────── */
@@ -215,4 +237,113 @@
 .handsontable .manualColumnResizer:hover,
 .handsontable .manualColumnResizer.active {
   border-right-color: var(--accent);
+}
+
+
+/* ════════════════════════════════════════════════════════════
+   DARK MODE GRID OVERRIDES
+   Applied only when html[data-theme="dark"] is set.
+   Overrides HOT's hardcoded white/light cell backgrounds.
+   ════════════════════════════════════════════════════════════ */
+
+/* ── Data cells ─────────────────────────────────────────── */
+
+html[data-theme="dark"] .handsontable .htCore tbody td {
+  background-color: #161b22 !important;
+  color: #e6edf3 !important;
+  border-color: #30363d !important;
+}
+
+/* ── Read-only cells ─────────────────────────────────────── */
+
+html[data-theme="dark"] .handsontable .htCore tbody td.cell-readonly {
+  background-color: #0f1520 !important;
+  color: #6e7681 !important;
+}
+
+/* ── Locked rows ─────────────────────────────────────────── */
+
+html[data-theme="dark"] .handsontable .htCore tbody tr td.row-locked {
+  background-color: #0f1520 !important;
+  color: #555e6a !important;
+}
+
+/* ── Column header accent line — keep using accent var ───── */
+
+html[data-theme="dark"] .handsontable thead th {
+  border-bottom-color: rgba(201, 151, 58, 0.45) !important;
+}
+
+/* ── Context menu ────────────────────────────────────────── */
+
+html[data-theme="dark"] .htContextMenu .ht_master table.htCore {
+  border-color: #444c56 !important;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5) !important;
+}
+
+html[data-theme="dark"] .htContextMenu td {
+  background: #21262d !important;
+  color: #e6edf3 !important;
+  border-color: #30363d !important;
+}
+
+html[data-theme="dark"] .htContextMenu td:hover,
+html[data-theme="dark"] .htContextMenu td.htCustomMenuRenderer:hover {
+  background: #30363d !important;
+  color: #e6edf3 !important;
+}
+
+html[data-theme="dark"] .htContextMenu td.htSeparator {
+  background: #444c56 !important;
+}
+
+html[data-theme="dark"] .htContextMenu td.htDisabled {
+  color: #555e6a !important;
+}
+
+/* ── Autocomplete / dropdown listbox ─────────────────────── */
+
+html[data-theme="dark"] .handsontable.listbox {
+  background: #21262d !important;
+  border-color: #444c56 !important;
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.4) !important;
+}
+
+html[data-theme="dark"] .handsontable.listbox .htCore td {
+  background: #21262d !important;
+  color: #e6edf3 !important;
+  border-bottom-color: #30363d !important;
+}
+
+html[data-theme="dark"] .handsontable.listbox .htCore tr:hover td,
+html[data-theme="dark"] .handsontable.listbox .htCore td.htAutocomplete:hover {
+  background: #2d333b !important;
+  color: #e6edf3 !important;
+}
+
+html[data-theme="dark"] .handsontable.listbox .htCore td.current,
+html[data-theme="dark"] .handsontable.listbox .htCore tr.current td {
+  background: #444c56 !important;
+  color: #ffffff !important;
+}
+
+/* ── Scrollbars ──────────────────────────────────────────── */
+
+html[data-theme="dark"] .handsontable .wtHolder::-webkit-scrollbar-track {
+  background: #161b22;
+  border-left-color: #30363d;
+}
+
+html[data-theme="dark"] .handsontable .wtHolder::-webkit-scrollbar-thumb {
+  background: #444c56;
+  border-color: #161b22;
+}
+
+html[data-theme="dark"] .handsontable .wtHolder::-webkit-scrollbar-thumb:hover {
+  background: #6e7681;
+}
+
+html[data-theme="dark"] .handsontable .wtHolder::-webkit-scrollbar-corner {
+  background: #161b22;
+  border-color: #30363d;
 }

@@ -21,6 +21,10 @@
   function init() {
     console.log('[app.js] init() — starting');
 
+    // Sync theme meta tag + active swatch state (the inline <head>
+    // script already applied data-theme before first paint)
+    if (typeof Theme !== 'undefined') Theme.init();
+
     // If a session already exists (page reload within same tab),
     // skip login and go straight to the app.
     var name = sessionStorage.getItem('app_name');
@@ -87,6 +91,12 @@
         // Wire filters — global search + column filter status panel
         if (typeof Filters !== 'undefined') {
           Filters.init(role, name);
+        }
+
+        // Theme dropdown — injected into the filter ribbon after Filters.init
+        // so the panel already exists and the anchor survives future refreshes
+        if (typeof Theme !== 'undefined') {
+          Theme.renderDropdown();
         }
 
         // Wire delete workflow + manager panel — all roles
@@ -303,6 +313,7 @@
       logoutBtn.title     = 'Sign out';
       logoutBtn.innerHTML = '&#x2197;&#xFE0E; Sign Out';
       logoutBtn.addEventListener('click', _logout);
+
       presenceBar.appendChild(logoutBtn);
     }
 
