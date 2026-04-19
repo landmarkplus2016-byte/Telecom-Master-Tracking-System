@@ -171,6 +171,11 @@ function handleRequest(e) {
       return jsonResponse({ success: true, message: 'Tracking App API is running.' });
     }
 
+    // Version check — no auth required
+    if (params.action === 'version') {
+      return jsonResponse({ success: true, version: 'v2-paginated', pageSize: 800 });
+    }
+
     // All other actions require authentication
     var authResult = authenticate(params.name, params.code);
     if (!authResult.success) {
@@ -394,10 +399,28 @@ function getRows(role, coordinatorName, since, offset, pageSize) {
              serverTime: serverTime, hasMore: false, totalRows: 0 };
   }
 
-  // Always read the header row (row 1)
-  var headerValues = dataSheet.getRange(1, 1, 1, lastCol).getValues()[0];
-  var headers      = headerValues.map(function (h) { return String(h).trim(); });
-  var colIndexMap  = buildColumnIndexMap(headers);
+  // Read only the first 60 header columns to locate ALL_COLUMNS keys.
+  // Sheets pasted from Excel often have hundreds of empty columns beyond
+  // the actual data, making getLastColumn() return 300-1000+.
+  // We cap the header read at 60 (we need at most 45) to avoid that.
+  var headerReadCols = Math.min(lastCol, 60);
+  var headerValues   = dataSheet.getRange(1, 1, 1, headerReadCols).getValues()[0];
+  var headers        = headerValues.map(function (h) { return String(h).trim(); });
+  var colIndexMap    = buildColumnIndexMap(headers);
+
+  // Find the highest column index actually used by ALL_COLUMNS so we
+  // only read that many columns per data row — not lastCol (which may
+  // be 300+ due to phantom formatting in the pasted Excel data).
+  var maxNeededCol = 0;
+  for (var ck = 0; ck < ALL_COLUMNS.length; ck++) {
+    var ci = colIndexMap[ALL_COLUMNS[ck]];
+    if (ci !== undefined && ci > maxNeededCol) maxNeededCol = ci;
+  }
+  // effectiveReadCols: 1-based column count to read per data row.
+  // Fall back to min(lastCol, 60) if no columns were mapped (empty/mismatched headers).
+  var effectiveReadCols = (maxNeededCol > 0)
+    ? maxNeededCol + 1
+    : Math.min(lastCol, 60);
 
   // Determine which sheet rows to read
   // Sheet row 1 = header; first data row = sheet row 2
@@ -421,7 +444,7 @@ function getRows(role, coordinatorName, since, offset, pageSize) {
   }
 
   var rowCount   = endSheetRow - startSheetRow + 1;
-  var dataValues = dataSheet.getRange(startSheetRow, 1, rowCount, lastCol).getValues();
+  var dataValues = dataSheet.getRange(startSheetRow, 1, rowCount, effectiveReadCols).getValues();
   var rows       = [];
 
   for (var i = 0; i < dataValues.length; i++) {
@@ -531,8 +554,13 @@ function ensureColumns(dataSheet, headerRow) {
   dataSheet.getRange(1, nextCol, 1, missing.length).setValues([missing]);
 }
 
+var _cachedTz = null;
+
 function formatCell(value) {
-  var tz = SpreadsheetApp.getActiveSpreadsheet().getSpreadsheetTimeZone();
+  if (!_cachedTz) {
+    _cachedTz = SpreadsheetApp.getActiveSpreadsheet().getSpreadsheetTimeZone();
+  }
+  var tz = _cachedTz;
 
   // Google Sheets Date object → format in sheet's timezone
   if (value instanceof Date) {
@@ -1814,6 +1842,21 @@ function testGetRowsAsManager() {
   var result = getRows('manager', 'Carol');
   Logger.log('Row count : ' + result.rows.length);
   Logger.log('Col count : ' + result.columns.length + '  (expect 42)');
+}
+
+// ── Run this in the Apps Script editor to confirm pagination is working ──
+// Expected output: rows=800, hasMore=true, totalRows=6500 (approx), time < 20s
+function testPagination() {
+  var start  = Date.now();
+  var result = getRows('manager', '', null, 0, 800);
+  var elapsed = ((Date.now() - start) / 1000).toFixed(1);
+  Logger.log('=== PAGINATION TEST ===');
+  Logger.log('version   : v2-paginated');
+  Logger.log('rows      : ' + result.rows.length);
+  Logger.log('hasMore   : ' + result.hasMore);
+  Logger.log('totalRows : ' + result.totalRows);
+  Logger.log('time      : ' + elapsed + 's');
+  Logger.log('status    : ' + (result.success ? 'OK' : 'FAIL — ' + result.error));
 }
 
 function testGetConfig() {

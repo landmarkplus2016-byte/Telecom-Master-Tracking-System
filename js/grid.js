@@ -133,7 +133,18 @@ var Grid = (function () {
     // These can accumulate in IDB from previous fetches before the server-side
     // fix, and should never appear in the grid.
     var filtered = (rows || []).filter(function (r) {
-      return r && (r.id || r.job_code || r.task_name);
+      if (!r) return false;
+      // Accept any row with at least one non-metadata field that has a value.
+      // The server already runs hasMeaningfulData; this guards only against
+      // null/empty IDB artifacts. Checking only id/job_code/task_name was too
+      // strict — imported rows often lack id (not yet auto-generated).
+      var keys = Object.keys(r);
+      for (var fi = 0; fi < keys.length; fi++) {
+        if (keys[fi].charAt(0) === '_') continue; // skip _row_index, _last_modified, etc.
+        var v = r[keys[fi]];
+        if (v !== '' && v !== null && v !== undefined) return true;
+      }
+      return false;
     });
     console.log('[grid.js] loadData() — rows:', filtered.length, '(filtered from', (rows || []).length + ')');
     _allData = filtered.slice();   // store complete copy for global search
