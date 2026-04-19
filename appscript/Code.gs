@@ -183,8 +183,10 @@ function handleRequest(e) {
         return jsonResponse(authResult);
 
       case 'getRows':
-        // params.since — optional epoch-ms number; when set, only rows modified after it are returned
-        return jsonResponse(getRows(authResult.role, authResult.name, params.since));
+        // params.since    — optional epoch-ms; when set, only rows modified after it are returned
+        // params.offset   — optional 0-based data-row offset for paginated full loads
+        // params.pageSize — optional rows-per-page (ignored when since is set)
+        return jsonResponse(getRows(authResult.role, authResult.name, params.since, params.offset, params.pageSize));
 
       case 'writeRow':
         return jsonResponse(writeRow(params.row, authResult.role, authResult.name));
@@ -356,44 +358,77 @@ function getTeamMembers() {
 // serverTime is always returned so the client can save it as the new
 // sync cursor after a successful fetch.
 
-function getRows(role, coordinatorName, since) {
-  var sinceMs   = since ? Number(since) : 0;
+// ── getRows ───────────────────────────────────────────────────
+//
+// Supports two modes:
+//
+//   Delta mode  (since is set):  returns only rows modified after `since`.
+//               No pagination — delta sets are always small.
+//
+//   Page mode   (since is absent, offset + pageSize are set):
+//               Returns a slice of the sheet starting at `offset`
+//               (0-based data-row index).  hasMore tells the client
+//               whether another page exists.  This keeps each request
+//               under the 45-second timeout even for large sheets.
+//
+// _row_index is always the 1-based sheet row so edits round-trip correctly.
+
+function getRows(role, coordinatorName, since, offset, pageSize) {
+  var sinceMs    = since    ? Number(since)    : 0;
+  var dataOffset = offset   ? Number(offset)   : 0;  // 0-based data row index
+  var pgSize     = pageSize ? Number(pageSize) : 0;  // 0 = no pagination (delta mode)
   var serverTime = Date.now();
 
   var ss        = SpreadsheetApp.getActiveSpreadsheet();
   var dataSheet = ss.getSheetByName(SHEET_DATA);
 
   if (!dataSheet) {
-    return {
-      success:    true,
-      rows:       [],
-      columns:    getVisibleColumns(role),
-      serverTime: serverTime
-    };
+    return { success: true, rows: [], columns: getVisibleColumns(role),
+             serverTime: serverTime, hasMore: false };
   }
 
-  var lastRow  = dataSheet.getLastRow();
-  var lastCol  = dataSheet.getLastColumn();
+  var lastRow = dataSheet.getLastRow();
+  var lastCol = dataSheet.getLastColumn();
   if (lastRow < 2 || lastCol < 1) {
-    return {
-      success:    true,
-      rows:       [],
-      columns:    getVisibleColumns(role),
-      serverTime: serverTime
-    };
+    return { success: true, rows: [], columns: getVisibleColumns(role),
+             serverTime: serverTime, hasMore: false, totalRows: 0 };
   }
-  var values = dataSheet.getRange(1, 1, lastRow, lastCol).getValues();
 
-  var headers     = values[0].map(function (h) { return String(h).trim(); });
-  var colIndexMap = buildColumnIndexMap(headers);
-  var rows        = [];
+  // Always read the header row (row 1)
+  var headerValues = dataSheet.getRange(1, 1, 1, lastCol).getValues()[0];
+  var headers      = headerValues.map(function (h) { return String(h).trim(); });
+  var colIndexMap  = buildColumnIndexMap(headers);
 
-  for (var i = 1; i < values.length; i++) {
-    var rawRow = values[i];
+  // Determine which sheet rows to read
+  // Sheet row 1 = header; first data row = sheet row 2
+  var firstDataSheetRow = 2;
+  var startSheetRow, endSheetRow, hasMore;
 
-    // Skip rows with no meaningful tracking data.
-    // The simple all-cells-empty check misses rows that contain only
-    // system metadata (last_modified / created_date) but no actual fields.
+  if (pgSize > 0 && !sinceMs) {
+    // Page mode: read only the requested slice
+    startSheetRow = firstDataSheetRow + dataOffset;
+    if (startSheetRow > lastRow) {
+      return { success: true, rows: [], columns: getVisibleColumns(role),
+               serverTime: serverTime, hasMore: false, totalRows: lastRow - 1 };
+    }
+    endSheetRow = Math.min(startSheetRow + pgSize - 1, lastRow);
+    hasMore     = endSheetRow < lastRow;
+  } else {
+    // Delta mode or legacy call — read all data rows
+    startSheetRow = firstDataSheetRow;
+    endSheetRow   = lastRow;
+    hasMore       = false;
+  }
+
+  var rowCount   = endSheetRow - startSheetRow + 1;
+  var dataValues = dataSheet.getRange(startSheetRow, 1, rowCount, lastCol).getValues();
+  var rows       = [];
+
+  for (var i = 0; i < dataValues.length; i++) {
+    var rawRow      = dataValues[i];
+    var sheetRowNum = startSheetRow + i; // 1-based sheet row
+
+    // Skip rows with no meaningful tracking data
     var hasMeaningfulData = false;
     for (var mc = 0; mc < ALL_COLUMNS.length; mc++) {
       var mck = ALL_COLUMNS[mc];
@@ -406,7 +441,6 @@ function getRows(role, coordinatorName, since) {
     }
     if (!hasMeaningfulData) continue;
 
-    // Build a keyed object from all known columns
     var rowObj = {};
     for (var k = 0; k < ALL_COLUMNS.length; k++) {
       var key = ALL_COLUMNS[k];
@@ -414,46 +448,32 @@ function getRows(role, coordinatorName, since) {
       rowObj[key] = (idx !== undefined) ? formatCell(rawRow[idx]) : '';
     }
 
-    // Include the 1-based sheet row number so the client can pass it back on updates
-    rowObj._row_index = i + 1;
+    rowObj._row_index = sheetRowNum;
 
-    // ── Metadata: read last_modified / created_date as epoch-ms numbers ──
-    // Exposed as _last_modified / _created_date so they survive the
-    // coordinator strip loop below (which only strips ALL_COLUMNS keys).
     var lmIdx = colIndexMap['last_modified'];
     rowObj._last_modified = lmIdx !== undefined ? _toEpochMs(rawRow[lmIdx]) : 0;
 
     var cdIdx = colIndexMap['created_date'];
     rowObj._created_date = cdIdx !== undefined ? _toEpochMs(rawRow[cdIdx]) : 0;
 
-    // Remove the raw string versions — only the _prefixed ones are sent to clients
     delete rowObj['last_modified'];
     delete rowObj['created_date'];
 
-    // ── Delta filter ─────────────────────────────────────────────
-    // Skip rows not changed since the client's last sync.
-    // Rows without a timestamp (legacy rows before delta sync was added)
-    // always pass through so existing data is never lost.
+    // Delta filter — skip unchanged rows (delta mode only)
     if (sinceMs && rowObj._last_modified && rowObj._last_modified <= sinceMs) continue;
 
-    // ── Role-based row and column filtering ───────────────────
-
+    // Role-based row and column filtering
     if (role === 'coordinator') {
       var owner = String(rowObj.coordinator_name || '').trim().toLowerCase();
       var self  = String(coordinatorName || '').trim().toLowerCase();
       if (owner !== self) continue;
 
-      // Stamp _locked BEFORE stripping invoicing columns so the coordinator
-      // client knows this row is read-only without ever seeing acceptance_status.
       rowObj._locked = (String(rowObj.acceptance_status || '').trim() !== '');
 
       for (var stripped in COORDINATOR_STRIPPED_KEYS) {
         delete rowObj[stripped];
       }
     }
-
-    // Invoicing and Manager receive all rows and all columns.
-    // Invoicing read-only on coordinator_name is enforced in writeRow.
 
     rows.push(rowObj);
   }
@@ -462,7 +482,9 @@ function getRows(role, coordinatorName, since) {
     success:    true,
     rows:       rows,
     columns:    getVisibleColumns(role),
-    serverTime: serverTime
+    serverTime: serverTime,
+    hasMore:    hasMore,
+    totalRows:  lastRow - 1   // total data rows in sheet (for progress display)
   };
 }
 

@@ -36,10 +36,10 @@ var Sheets = (function () {
   // Cold starts can take 8 s; give generous headroom.
   var REQUEST_TIMEOUT_MS = 45 * 1000; // 45 seconds
 
-  // Longer timeout for the initial full-data fetch.
-  // 6,500+ rows × 43 columns can take 90–120 s to read + serialize.
-  // This is a one-time cost — every subsequent call uses delta sync.
-  var FULL_FETCH_TIMEOUT_MS = 4 * 60 * 1000; // 4 minutes
+  // Rows fetched per page during the initial full load.
+  // 800 rows × 43 columns typically completes in 8–15 s per page,
+  // well within the 45-second timeout even on a cold start.
+  var FULL_FETCH_PAGE_SIZE = 800;
 
   // Presence heartbeat interval (ms). Must be < PRESENCE_STALE_MS.
   var PRESENCE_INTERVAL_MS = 30 * 1000; // 30 seconds
@@ -92,14 +92,45 @@ var Sheets = (function () {
    * callback({ success:false, error })
    */
   function fetchAllRows(callback) {
-    _post(
-      { action: 'getRows' },
-      { isColdStartCandidate: true, label: 'Loading data', timeoutMs: FULL_FETCH_TIMEOUT_MS },
-      function (result) {
-        if (result.success) _updateLastSyncTime(result.serverTime);
-        callback(result);
-      }
-    );
+    var allRows    = [];
+    var offset     = 0;
+    var totalRows  = null; // set on first response
+
+    function _fetchPage() {
+      var label = totalRows
+        ? 'Loading data (' + Math.min(offset, totalRows) + ' / ' + totalRows + ')'
+        : 'Loading data';
+
+      _post(
+        { action: 'getRows', offset: offset, pageSize: FULL_FETCH_PAGE_SIZE },
+        { isColdStartCandidate: offset === 0, label: label },
+        function (result) {
+          if (!result.success) {
+            callback(result); // propagate error as-is
+            return;
+          }
+
+          allRows = allRows.concat(result.rows || []);
+          if (result.totalRows) totalRows = result.totalRows;
+
+          if (result.hasMore) {
+            offset += FULL_FETCH_PAGE_SIZE;
+            _fetchPage(); // fetch next page
+          } else {
+            // All pages received — return as a single combined result
+            _updateLastSyncTime(result.serverTime);
+            callback({
+              success:    true,
+              rows:       allRows,
+              columns:    result.columns,
+              serverTime: result.serverTime
+            });
+          }
+        }
+      );
+    }
+
+    _fetchPage();
   }
 
   // ── Public: Delta fetch ───────────────────────────────────
