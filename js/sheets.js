@@ -36,6 +36,11 @@ var Sheets = (function () {
   // Cold starts can take 8 s; give generous headroom.
   var REQUEST_TIMEOUT_MS = 45 * 1000; // 45 seconds
 
+  // Longer timeout for the initial full-data fetch.
+  // 6,500+ rows × 43 columns can take 90–120 s to read + serialize.
+  // This is a one-time cost — every subsequent call uses delta sync.
+  var FULL_FETCH_TIMEOUT_MS = 4 * 60 * 1000; // 4 minutes
+
   // Presence heartbeat interval (ms). Must be < PRESENCE_STALE_MS.
   var PRESENCE_INTERVAL_MS = 30 * 1000; // 30 seconds
 
@@ -89,7 +94,7 @@ var Sheets = (function () {
   function fetchAllRows(callback) {
     _post(
       { action: 'getRows' },
-      { isColdStartCandidate: true, label: 'Loading data' },
+      { isColdStartCandidate: true, label: 'Loading data', timeoutMs: FULL_FETCH_TIMEOUT_MS },
       function (result) {
         if (result.success) _updateLastSyncTime(result.serverTime);
         callback(result);
@@ -529,6 +534,7 @@ var Sheets = (function () {
     _setLoadingStatus(opts.label + '…');
 
     // Abort controller for timeout
+    var timeoutMs = opts.timeoutMs || REQUEST_TIMEOUT_MS;
     var aborted  = false;
     var timerId  = setTimeout(function () {
       aborted = true;
@@ -537,7 +543,7 @@ var Sheets = (function () {
         success: false,
         error:   'The server is taking too long to respond. Please check your connection and try again.'
       });
-    }, REQUEST_TIMEOUT_MS);
+    }, timeoutMs);
 
     fetch(url, {
       method:  'POST',

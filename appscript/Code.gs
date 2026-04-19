@@ -372,9 +372,9 @@ function getRows(role, coordinatorName, since) {
     };
   }
 
-  var values = dataSheet.getDataRange().getValues();
-
-  if (values.length < 2) {
+  var lastRow  = dataSheet.getLastRow();
+  var lastCol  = dataSheet.getLastColumn();
+  if (lastRow < 2 || lastCol < 1) {
     return {
       success:    true,
       rows:       [],
@@ -382,6 +382,7 @@ function getRows(role, coordinatorName, since) {
       serverTime: serverTime
     };
   }
+  var values = dataSheet.getRange(1, 1, lastRow, lastCol).getValues();
 
   var headers     = values[0].map(function (h) { return String(h).trim(); });
   var colIndexMap = buildColumnIndexMap(headers);
@@ -565,7 +566,11 @@ function writeRow(rowData, role, coordinatorName) {
   }
 
   // ── Ensure Data tab has a header row ──
-  var allValues = dataSheet.getDataRange().getValues();
+  var _wrLastRow = dataSheet.getLastRow();
+  var _wrLastCol = dataSheet.getLastColumn();
+  var allValues  = (_wrLastRow > 0 && _wrLastCol > 0)
+    ? dataSheet.getRange(1, 1, _wrLastRow, _wrLastCol).getValues()
+    : [];
   var headerRow = (allValues.length > 0)
     ? allValues[0].map(function (h) { return String(h).trim(); })
     : [];
