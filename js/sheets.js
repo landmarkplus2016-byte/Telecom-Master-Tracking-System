@@ -37,9 +37,11 @@ var Sheets = (function () {
   var REQUEST_TIMEOUT_MS = 45 * 1000; // 45 seconds
 
   // Rows fetched per page during the initial full load.
-  // 800 rows × 43 columns typically completes in 8–15 s per page,
-  // well within the 45-second timeout even on a cold start.
-  var FULL_FETCH_PAGE_SIZE = 800;
+  // With the new paginated Code.gs: 800 rows × 43 cols completes in 8–15 s per page.
+  // With old (non-paginated) Code.gs still deployed: entire sheet is read in one call
+  // which can take 90–120 s for large sheets — so we give full-fetch pages extra time.
+  var FULL_FETCH_PAGE_SIZE    = 800;
+  var FULL_FETCH_TIMEOUT_MS   = 4 * 60 * 1000; // 4 min — one-time cost; generous for old server
 
   // Presence heartbeat interval (ms). Must be < PRESENCE_STALE_MS.
   var PRESENCE_INTERVAL_MS = 30 * 1000; // 30 seconds
@@ -103,7 +105,7 @@ var Sheets = (function () {
 
       _post(
         { action: 'getRows', offset: offset, pageSize: FULL_FETCH_PAGE_SIZE },
-        { isColdStartCandidate: offset === 0, label: label },
+        { isColdStartCandidate: offset === 0, label: label, timeoutMs: FULL_FETCH_TIMEOUT_MS },
         function (result) {
           if (!result.success) {
             callback(result); // propagate error as-is

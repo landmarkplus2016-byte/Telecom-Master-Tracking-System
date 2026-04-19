@@ -179,7 +179,11 @@ var Grid = (function () {
     // Converting to arrays causes empty cells because HOT uses the key
     // mapping, not array index, when columns[i].data is set.
     _hotLoadData(_data);
-    _updateRowCount(_hot ? _hot.countRows() : _data.length);
+    // Use _data.length here — _hot.countRows() can return 0 while HOT is
+    // still rendering after loadData, producing a transient "0 rows" display.
+    // The afterFilter hook separately corrects the count when the user
+    // applies or removes column filters.
+    _updateRowCount(_data.length);
 
     // Apply pricing calculations and indicators to every loaded row.
     // Pricing must be initialised (Pricing.init called) before loadData.
@@ -482,10 +486,11 @@ var Grid = (function () {
 
     if (hasNewRows) {
       _hotLoadData(_data);
+      _updateRowCount(_data.length);
     } else {
       _hot.render();
+      _updateRowCount(_hot ? _hot.countRows() : _data.length);
     }
-    _updateRowCount(_hot ? _hot.countRows() : _data.length);
   }
 
   // ── _hotLoadData — load data while preserving active column filters ──
@@ -496,12 +501,13 @@ var Grid = (function () {
   // delta syncs, global search resets, and row remove/restore operations.
 
   function _hotLoadData(data) {
+    // Snapshot conditions BEFORE loadData — HOT's internal filter reset fires
+    // afterFilter with [] synchronously during loadData, which would clobber
+    // _savedFilterConditions before we get a chance to restore them.
+    var conditionsToRestore = _savedFilterConditions.slice();
     _hot.loadData(data);
-    // HOT's loadData clears the Filters plugin state. Re-apply the last known
-    // conditions immediately. _savedFilterConditions is kept up-to-date by the
-    // afterFilter hook (set on every user filter change and on every restore).
-    if (_savedFilterConditions.length) {
-      _restoreHotFilterConditions(_savedFilterConditions);
+    if (conditionsToRestore.length) {
+      _restoreHotFilterConditions(conditionsToRestore);
     }
   }
 
@@ -608,7 +614,12 @@ var Grid = (function () {
         // Save a deep copy of the current filter state.
         // _hotLoadData reads this to re-apply conditions after every loadData call.
         _savedFilterConditions = JSON.parse(JSON.stringify(conditionsStack || []));
-        _updateRowCount(_hot ? _hot.countRows() : _data.length);
+        // When conditions are empty (HOT cleared its filter during loadData or user
+        // removed all filters), countRows may transiently return 0 — use _data.length
+        // instead so the status bar never flickers to "0 rows" incorrectly.
+        var visible = _hot ? _hot.countRows() : _data.length;
+        if (!conditionsStack || !conditionsStack.length) visible = _data.length;
+        _updateRowCount(visible);
         if (typeof Filters !== 'undefined') {
           Filters.onColumnFilterChanged(conditionsStack || []);
         }

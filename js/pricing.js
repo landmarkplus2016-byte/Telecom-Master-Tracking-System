@@ -93,7 +93,8 @@ var Pricing = (function () {
       // ── Build price lookup map ──────────────────────────
       (configData.priceList || []).forEach(function (p) {
         if (!p.version || !p.lineItem) return;
-        var key = String(p.version).trim() + '|' + String(p.lineItem).trim().toLowerCase();
+        var normalised = String(p.lineItem).trim().replace(/\s+/g, ' ').toLowerCase();
+        var key = String(p.version).trim() + '|' + normalised;
         _priceMap[key] = parseFloat(p.unitPrice) || 0;
       });
 
@@ -195,7 +196,7 @@ var Pricing = (function () {
     if (!lineItem) return null;
     var version = resolveVersion(taskDate);
     if (!version) return null;
-    var key = version + '|' + String(lineItem).trim().toLowerCase();
+    var key = version + '|' + String(lineItem).trim().replace(/\s+/g, ' ').toLowerCase();
     var price = _priceMap[key];
     if (price === undefined) {
       console.warn('[pricing.js] lookupPrice MISS — key:', JSON.stringify(key),

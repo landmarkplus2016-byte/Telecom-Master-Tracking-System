@@ -177,6 +177,29 @@
             return;
           }
           console.log('[app.js] startup fetch — rows received:', result.rows.length);
+
+          // Guard: if server returned 0 rows but IDB has data, something went wrong
+          // (e.g. server-side hasMeaningfulData too strict, or sheet temporarily empty).
+          // Keep the existing IDB cache rather than wiping it with an empty result.
+          if (!result.rows.length) {
+            Offline.getAllRows(function (cachedRows) {
+              if (cachedRows.length) {
+                console.warn('[app.js] server returned 0 rows but IDB has', cachedRows.length,
+                  '— keeping IDB data. Check Code.gs deployment and sheet headers.');
+                Offline.setLastSyncTime(result.serverTime);
+                Grid.loadData(cachedRows);
+                _startBackgroundSync();
+              } else {
+                // Both server and IDB are empty — genuine empty sheet
+                Offline.replaceAllRows([]);
+                Offline.setLastSyncTime(result.serverTime);
+                Grid.loadData([]);
+                _startBackgroundSync();
+              }
+            });
+            return;
+          }
+
           // replaceAllRows clears IDB before writing so deleted-from-sheet rows
           // never survive as phantoms in the local cache.
           Offline.replaceAllRows(result.rows);
