@@ -41,7 +41,7 @@ var Theme = (function () {
       id:      'blue',
       label:   'Blue',
       desc:    'PROFESSIONAL \u00b7 COOL',
-      header:  '#1e3a6e',
+      header:  '#295097',
       accent:  '#4472c4',
       surface: '#f0f4fa'
     },
@@ -57,7 +57,7 @@ var Theme = (function () {
       id:      'green',
       label:   'Green',
       desc:    'FOREST \u00b7 NATURAL',
-      header:  '#1a3a2a',
+      header:  '#28563f',
       accent:  '#4a9e6a',
       surface: '#f0f5f2'
     },
@@ -65,7 +65,7 @@ var Theme = (function () {
       id:      'purple',
       label:   'Purple / Pink',
       desc:    'VIOLET \u00b7 VIVID',
-      header:  '#2d1b4e',
+      header:  '#462a78',
       accent:  '#9b59d0',
       surface: '#f5f2fa'
     },
