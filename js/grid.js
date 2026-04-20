@@ -350,14 +350,31 @@ var Grid = (function () {
     var addBtn = document.getElementById('tb-add-row');
     if (addBtn) {
       addBtn.addEventListener('click', function () {
-        // Push to _allData AND _data so the row survives any
-        // applyGlobalSearch rebuild (alter() only touches _data).
-        var newRow = {};
-        _allData.push(newRow);
-        _data.push(newRow);
-        _hotLoadData(_data);
-        var lastIdx = _hot.countRows() - 1;
-        if (lastIdx >= 0) _hot.selectCell(lastIdx, 0);
+        // Purge any stale empty rows that old alter() calls left in _data
+        // but never synced to _allData. These cause phantom rows in filtered
+        // views. Rebuild _data from _allData then reload HOT so column
+        // conditions are re-applied before we insert the new row.
+        var cleanData = _globalSearchFn
+          ? _allData.filter(function(r) { return !r._row_index || _globalSearchFn(r); })
+          : _allData.slice();
+        if (cleanData.length !== _data.length) {
+          _data = cleanData;
+          _hotLoadData(_data);
+        }
+
+        // Use alter() so the new row is immediately visible even when a
+        // column filter is active — alter() bypasses TrimRows, which is
+        // intentional here so the user can start filling in the new row.
+        var insertIdx = _hot.countRows();
+        _hot.alter('insert_row_below', insertIdx);
+
+        // Sync the row object HOT just created into _allData so it
+        // survives any future applyGlobalSearch or applyDelta rebuild.
+        var newRow = _hot.getSourceDataAtRow(insertIdx);
+        if (newRow && _allData.indexOf(newRow) === -1) {
+          _allData.push(newRow);
+        }
+        _hot.selectCell(insertIdx, 0);
         _updateRowCount(_hot.countRows());
       });
     }
@@ -1672,7 +1689,10 @@ var Grid = (function () {
 
     if (_hot) {
       _hotLoadData(_data);
-      _updateRowCount(_hot ? _hot.countRows() : _data.length);
+      // Do NOT call _updateRowCount here — afterFilter (fired synchronously
+      // inside _hotLoadData) already updates the count with the correct value.
+      // Calling _hot.countRows() here races HOT's async render and can return
+      // the stale pre-search total (e.g. 6418) instead of the filtered count.
     }
   }
 
