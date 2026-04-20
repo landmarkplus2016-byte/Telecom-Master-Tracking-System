@@ -166,17 +166,18 @@
                 .filter(function (e) { return e.rowData && !e.rowData._row_index; })
                 .map(function (e) { return e.rowData; });
               Grid.loadData(cachedRows.concat(pendingNew));
-            });
 
-            // Background delta sync to pick up any changes since last open
-            var since = Offline.getLastSyncTime();
-            if (since) {
-              _runDeltaSync(since, function () {
+              // Start delta sync AFTER Grid.loadData so applyDelta always
+              // fires into a populated _allData, never into an empty grid.
+              var since = Offline.getLastSyncTime();
+              if (since) {
+                _runDeltaSync(since, function () {
+                  _startBackgroundSync();
+                });
+              } else {
                 _startBackgroundSync();
-              });
-            } else {
-              _startBackgroundSync();
-            }
+              }
+            });
 
           } else {
             // No cache — first-ever load: full fetch required

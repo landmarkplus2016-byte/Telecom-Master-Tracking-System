@@ -187,10 +187,15 @@ var Grid = (function () {
 
     // Apply pricing calculations and indicators to every loaded row.
     // Pricing must be initialised (Pricing.init called) before loadData.
+    // batch() suspends HOT rendering for the entire loop and does ONE render
+    // at the end — without this, 6000+ rows × 4 setDataAtRowProp calls each
+    // trigger a re-render, freezing the browser for several seconds.
     if (typeof Pricing !== 'undefined' && Pricing.isReady()) {
-      for (var i = 0; i < _data.length; i++) {
-        _applyPricing(i);
-      }
+      _hot.batch(function () {
+        for (var i = 0; i < _data.length; i++) {
+          _applyPricing(i);
+        }
+      });
     }
 
     // Re-measure dimensions after data loads so stretchH:'all' and the
@@ -486,11 +491,12 @@ var Grid = (function () {
 
     if (hasNewRows) {
       _hotLoadData(_data);
-      _updateRowCount(_data.length);
     } else {
       _hot.render();
-      _updateRowCount(_hot ? _hot.countRows() : _data.length);
     }
+    // Always use _data.length — _hot.countRows() can return a stale or
+    // filter-reduced value while HOT is still processing the batch render.
+    _updateRowCount(_data.length);
   }
 
   // ── _hotLoadData — load data while preserving active column filters ──
