@@ -179,11 +179,13 @@ var Grid = (function () {
     // Converting to arrays causes empty cells because HOT uses the key
     // mapping, not array index, when columns[i].data is set.
     _hotLoadData(_data);
-    // Use _data.length here — _hot.countRows() can return 0 while HOT is
-    // still rendering after loadData, producing a transient "0 rows" display.
-    // The afterFilter hook separately corrects the count when the user
-    // applies or removes column filters.
-    _updateRowCount(_data.length);
+    // When column filters are active, afterFilter (fired inside _hotLoadData)
+    // already set the correct filtered count — don't overwrite it.
+    // When no column filters are active, use _data.length because
+    // _hot.countRows() can transiently return 0 while HOT is still rendering.
+    if (!_savedFilterConditions || !_savedFilterConditions.length) {
+      _updateRowCount(_data.length);
+    }
 
     // Apply pricing calculations and indicators to every loaded row.
     // Pricing must be initialised (Pricing.init called) before loadData.
@@ -491,16 +493,25 @@ var Grid = (function () {
 
     if (hasNewRows) {
       _hotLoadData(_data);
+      // afterFilter (fired inside _hotLoadData) already calls _updateRowCount
+      // with the correct post-filter count. Do NOT call _updateRowCount here —
+      // it would overwrite the filtered count (e.g. 3 rows) with _data.length
+      // (e.g. 2538), producing a wrong "2538 of 6410" status when a column
+      // filter is active.
     } else {
       _hot.render();
       // afterFilter fires via _hotLoadData (hasNewRows path) which already
       // notifies Filters. For the render-only path, notify explicitly so
       // the totals box reflects updated cell values.
       if (typeof Filters !== 'undefined') Filters.onDataChanged();
+      // Render-only path: afterFilter doesn't fire, so update count manually.
+      // When column filters are active, use _hot.countRows() (respects trimmed
+      // rows); otherwise use _data.length which is always accurate here.
+      var renderCount = (_savedFilterConditions && _savedFilterConditions.length)
+        ? (_hot ? _hot.countRows() : _data.length)
+        : _data.length;
+      _updateRowCount(renderCount);
     }
-    // Always use _data.length — _hot.countRows() can return a stale or
-    // filter-reduced value while HOT is still processing the batch render.
-    _updateRowCount(_data.length);
   }
 
   // ── _hotLoadData — load data while preserving active column filters ──

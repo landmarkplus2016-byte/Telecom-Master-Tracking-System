@@ -97,6 +97,10 @@ var Filters = (function () {
       input.addEventListener('input', function () {
         _searchTerm = input.value;
         _toggleClearBtn(clearBtn, !!_searchTerm);
+        // Refresh the panel immediately so the search badge appears as the
+        // user types — don't wait for the debounce to fire.
+        _refreshPanel();
+        _refreshFilterBtn();
         _scheduleSearch();
       });
 
