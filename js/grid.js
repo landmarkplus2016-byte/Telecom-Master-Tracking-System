@@ -1173,11 +1173,12 @@ var Grid = (function () {
     var el = document.getElementById('row-count');
     if (!el) return;
     var total = _allData.length;
+    var n = (total && visibleCount < total) ? visibleCount : (total || visibleCount);
+    if (n < 20) console.trace('[grid.js] _updateRowCount called with small count:', n, '| _allData.length:', total, '| visibleCount:', visibleCount);
     // Show "X of Y rows" when a filter is hiding some rows; plain "Y rows" otherwise.
     if (total && visibleCount < total) {
       el.textContent = visibleCount + ' of ' + total + ' rows';
     } else {
-      var n = total || visibleCount;
       el.textContent = n + (n === 1 ? ' row' : ' rows');
     }
   }
