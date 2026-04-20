@@ -350,8 +350,15 @@ var Grid = (function () {
     var addBtn = document.getElementById('tb-add-row');
     if (addBtn) {
       addBtn.addEventListener('click', function () {
-        _hot.alter('insert_row_below', _hot.countRows());
-        _hot.selectCell(_hot.countRows() - 1, 0);
+        // Push to _allData AND _data so the row survives any
+        // applyGlobalSearch rebuild (alter() only touches _data).
+        var newRow = {};
+        _allData.push(newRow);
+        _data.push(newRow);
+        _hotLoadData(_data);
+        var lastIdx = _hot.countRows() - 1;
+        if (lastIdx >= 0) _hot.selectCell(lastIdx, 0);
+        _updateRowCount(_hot.countRows());
       });
     }
 
@@ -468,7 +475,9 @@ var Grid = (function () {
     // When new rows arrive, re-derive _data from _allData to include (or exclude)
     // them correctly under any active global search filter.
     if (hasNewRows) {
-      _data = _globalSearchFn ? _allData.filter(_globalSearchFn) : _allData.slice();
+      _data = _globalSearchFn
+        ? _allData.filter(function (r) { return !r._row_index || _globalSearchFn(r); })
+        : _allData.slice();
     }
 
     // Rebuild locked-row index for coordinator (lock status may have changed)
@@ -1647,7 +1656,12 @@ var Grid = (function () {
    */
   function applyGlobalSearch(fn) {
     _globalSearchFn = fn || null;
-    _data = _globalSearchFn ? _allData.filter(_globalSearchFn) : _allData.slice();
+    // Always include rows without _row_index — they are pending new rows
+    // that haven't reached the server yet and must stay visible regardless
+    // of what the search predicate returns on their empty fields.
+    _data = _globalSearchFn
+      ? _allData.filter(function (r) { return !r._row_index || _globalSearchFn(r); })
+      : _allData.slice();
 
     if (_role === 'coordinator') {
       _lockedRows = {};

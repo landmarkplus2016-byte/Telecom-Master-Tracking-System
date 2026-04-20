@@ -97,6 +97,23 @@
   outline-offset: -2px;
 }
 
+/* ── Dark mode selection overrides ──────────────────────── */
+/* Default gold tint at 10% is invisible on #514d4d rows.   */
+/* Use a stronger tint + force light text so it stays legible.*/
+html[data-theme="dark"] .handsontable td.area {
+  background: rgba(201, 151, 58, 0.30) !important;
+  color: #e6edf3 !important;
+}
+
+html[data-theme="dark"] .handsontable td.current.highlight {
+  background: rgba(201, 151, 58, 0.40) !important;
+  color: #e6edf3 !important;
+}
+
+html[data-theme="dark"] .handsontable td.current {
+  color: #e6edf3 !important;
+}
+
 /* ── Locked rows (coordinator) — grey tint + muted text ─── */
 /* grid.js injects td.row-locked; CSS adds tr-level context.  */
 .handsontable .htCore tbody tr td.row-locked {
