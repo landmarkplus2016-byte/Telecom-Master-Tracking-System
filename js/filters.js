@@ -192,6 +192,44 @@ var Filters = (function () {
     _refreshFilterBtn();
   }
 
+  // ── Totals helpers ────────────────────────────────────────
+
+  function _formatNum(val) {
+    var n = Math.round(parseFloat(val) || 0);
+    return n.toString().replace(/\B(?=(\d{3})+(?!\d))/g, ',');
+  }
+
+  function _buildTotalsHtml() {
+    var t = (typeof Grid !== 'undefined' && Grid.getVisibleTotals)
+      ? Grid.getVisibleTotals()
+      : { newTotal: 0, lmp: 0, contractor: 0 };
+
+    var showPortions = (_role === 'invoicing' || _role === 'manager');
+
+    var html = '<div class="fp-totals">';
+    html += '<span class="fp-total-item">';
+    html += '<span class="fp-total-label">New Total</span>';
+    html += '<span class="fp-total-val fp-total-val--primary">' + _formatNum(t.newTotal) + ' EGP</span>';
+    html += '</span>';
+
+    if (showPortions) {
+      html += '<span class="fp-total-sep">|</span>';
+      html += '<span class="fp-total-item">';
+      html += '<span class="fp-total-label">LMP</span>';
+      html += '<span class="fp-total-val">' + _formatNum(t.lmp) + ' EGP</span>';
+      html += '</span>';
+
+      html += '<span class="fp-total-sep">|</span>';
+      html += '<span class="fp-total-item">';
+      html += '<span class="fp-total-label">Contractor</span>';
+      html += '<span class="fp-total-val">' + _formatNum(t.contractor) + ' EGP</span>';
+      html += '</span>';
+    }
+
+    html += '</div>';
+    return html;
+  }
+
   // ── Filter status panel ───────────────────────────────────
 
   function _refreshPanel() {
@@ -208,6 +246,7 @@ var Filters = (function () {
     var hasSearch    = !!term;
     var hasColFilter = _hotFilterCount > 0;
     var hasAny       = hasSearch || hasColFilter;
+    var totalsHtml   = _buildTotalsHtml();
 
     // ── Idle state — no active filters ────────────────────────
     if (!hasAny) {
@@ -217,6 +256,7 @@ var Filters = (function () {
           '<span class="fp-idle-dot" aria-hidden="true">&#9679;</span>',
           '<span class="fp-label">Active Filters</span>',
           '<span class="fp-idle-text">&#8212; none</span>',
+          totalsHtml,
         '</div>',
       ].join('');
       if (themeAnchor) panel.appendChild(themeAnchor);
@@ -252,6 +292,7 @@ var Filters = (function () {
         '<span class="fp-active-dot" aria-hidden="true">&#9679;</span>',
         '<span class="fp-label">Active Filters:</span>',
         '<span class="fp-badges">', parts.join(''), '</span>',
+        totalsHtml,
         '<button class="fp-clear-all" id="fp-clear-all">Clear All</button>',
       '</div>',
     ].join('');
@@ -502,8 +543,47 @@ var Filters = (function () {
       '}',
       '.fp-badge-remove:hover { color: var(--color-error); }',
 
-      '.fp-clear-all {',
+      // ── Totals box ────────────────────────────────────────
+      '.fp-totals {',
+        'display: flex;',
+        'align-items: center;',
+        'gap: 10px;',
         'margin-left: auto;',
+        'padding-left: 16px;',
+        'border-left: 1px solid var(--border);',
+        'flex-shrink: 0;',
+      '}',
+      '.fp-total-item {',
+        'display: flex;',
+        'align-items: center;',
+        'gap: 6px;',
+      '}',
+      '.fp-total-label {',
+        'font-family: var(--font-mono);',
+        'font-size: 9px;',
+        'letter-spacing: 0.12em;',
+        'text-transform: uppercase;',
+        'color: var(--text-secondary);',
+        'white-space: nowrap;',
+      '}',
+      '.fp-total-val {',
+        'font-family: var(--font-mono);',
+        'font-size: 11px;',
+        'font-weight: 600;',
+        'color: var(--text-primary);',
+        'letter-spacing: 0.02em;',
+        'white-space: nowrap;',
+      '}',
+      '.fp-total-val--primary { color: var(--accent); }',
+      '.fp-total-sep {',
+        'color: var(--border);',
+        'font-size: 12px;',
+        'flex-shrink: 0;',
+        'user-select: none;',
+      '}',
+
+      '.fp-clear-all {',
+        'margin-left: 12px;',
         'height: 24px;',
         'padding: 0 12px;',
         'background: transparent;',
@@ -616,6 +696,7 @@ var Filters = (function () {
   return {
     init:                  init,
     onColumnFilterChanged: onColumnFilterChanged,
+    onDataChanged:         _refreshPanel,
   };
 
 }());

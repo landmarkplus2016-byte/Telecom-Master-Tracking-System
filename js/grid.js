@@ -493,6 +493,10 @@ var Grid = (function () {
       _hotLoadData(_data);
     } else {
       _hot.render();
+      // afterFilter fires via _hotLoadData (hasNewRows path) which already
+      // notifies Filters. For the render-only path, notify explicitly so
+      // the totals box reflects updated cell values.
+      if (typeof Filters !== 'undefined') Filters.onDataChanged();
     }
     // Always use _data.length — _hot.countRows() can return a stale or
     // filter-reduced value while HOT is still processing the batch render.
@@ -1687,6 +1691,26 @@ var Grid = (function () {
    *   columns      — visible column definitions for current role
    * Called by js/export.js.
    */
+  /**
+   * Sum new_total_price, lmp_portion, and contractor_portion for every row
+   * currently visible in HOT (respects both global search and column filters).
+   * Called by js/filters.js to display live totals in the filter ribbon.
+   */
+  function getVisibleTotals() {
+    var result = { newTotal: 0, lmp: 0, contractor: 0 };
+    if (!_hot) return result;
+    var n = _hot.countRows();
+    for (var i = 0; i < n; i++) {
+      var phys = _hot.toPhysicalRow(i);
+      var row  = _hot.getSourceDataAtRow(phys);
+      if (!row) continue;
+      result.newTotal   += parseFloat(row.new_total_price)    || 0;
+      result.lmp        += parseFloat(row.lmp_portion)        || 0;
+      result.contractor += parseFloat(row.contractor_portion) || 0;
+    }
+    return result;
+  }
+
   function getExportData() {
     var filteredRows = [];
     if (_hot) {
@@ -1715,6 +1739,7 @@ var Grid = (function () {
     removeRow:         removeRow,
     refresh:           refresh,
     getExportData:     getExportData,
+    getVisibleTotals:  getVisibleTotals,
     applyGlobalSearch: applyGlobalSearch,
     clearAllFilters:   clearAllFilters,
     getVisibleColumns: getVisibleColumns,
