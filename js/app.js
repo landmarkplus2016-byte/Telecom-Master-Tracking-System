@@ -151,74 +151,57 @@
           return;
         }
 
-        // ── Always do a full fetch on startup ──────────────────────
-        // Delta sync cannot detect rows deleted directly from Google Sheets,
-        // so the IDB cache can drift silently if rows are removed outside the app.
-        // Full fetch on every startup ensures the cache always mirrors the sheet.
-        // Delta sync is still used for background polling (every 30 s) where
-        // a missing row is less critical than on initial load.
-        //
-        // If the network call fails, fall back to IDB cache so the app still
-        // works for read/offline use.
-        _setLoadingStatus('Loading data\u2026');
-        Sheets.fetchAllRows(function (result) {
-          _hide('screen-loading');
-          if (!result.success) {
-            console.error('[app.js] fetchAllRows failed:', result.error);
-            Offline.getAllRows(function (cachedRows) {
-              if (cachedRows.length) {
-                console.warn('[app.js] fetchAllRows failed — showing', cachedRows.length, 'cached rows');
-                Grid.loadData(cachedRows);
-                _startBackgroundSync();
-              } else {
-                _showError('Could not load data: ' + result.error);
-              }
+        // ── Startup: IDB-first, then background full fetch ─────────
+        // Show cached data instantly, then sync in the background.
+        // Full fetch only runs if IDB is empty (first-ever load).
+        // Use the Refresh button to force a full re-fetch at any time.
+        Offline.getAllRows(function (cachedRows) {
+          if (cachedRows.length) {
+            // IDB has data — show it immediately, no loading wait
+            console.log('[app.js] startup — showing', cachedRows.length, 'cached rows instantly');
+            _hide('screen-loading');
+
+            Offline.getPendingQueue(function (queueEntries) {
+              var pendingNew = queueEntries
+                .filter(function (e) { return e.rowData && !e.rowData._row_index; })
+                .map(function (e) { return e.rowData; });
+              Grid.loadData(cachedRows.concat(pendingNew));
             });
-            return;
-          }
-          console.log('[app.js] startup fetch — rows received:', result.rows.length);
 
-          // Guard: if server returned 0 rows but IDB has data, something went wrong
-          // (e.g. server-side hasMeaningfulData too strict, or sheet temporarily empty).
-          // Keep the existing IDB cache rather than wiping it with an empty result.
-          if (!result.rows.length) {
-            Offline.getAllRows(function (cachedRows) {
-              if (cachedRows.length) {
-                console.warn('[app.js] server returned 0 rows but IDB has', cachedRows.length,
-                  '— keeping IDB data. Check Code.gs deployment and sheet headers.');
-                Offline.setLastSyncTime(result.serverTime);
-                Grid.loadData(cachedRows);
+            // Background delta sync to pick up any changes since last open
+            var since = Offline.getLastSyncTime();
+            if (since) {
+              _runDeltaSync(since, function () {
                 _startBackgroundSync();
-              } else {
-                // Both server and IDB are empty — genuine empty sheet
-                Offline.replaceAllRows([]);
-                Offline.setLastSyncTime(result.serverTime);
-                Grid.loadData([]);
-                _startBackgroundSync();
-              }
-            });
-            return;
-          }
-
-          // replaceAllRows clears IDB before writing so deleted-from-sheet rows
-          // never survive as phantoms in the local cache.
-          Offline.replaceAllRows(result.rows);
-          Offline.setLastSyncTime(result.serverTime);
-
-          // Re-inject any pending new rows from the queue so they stay
-          // visible in the grid while waiting for the drain to complete.
-          // This handles the case where the user was offline at previous
-          // startup, added rows, then reloaded while online.
-          Offline.getPendingQueue(function (queueEntries) {
-            var pendingNew = queueEntries
-              .filter(function (e) { return e.rowData && !e.rowData._row_index; })
-              .map(function (e) { return e.rowData; });
-            if (pendingNew.length) {
-              console.log('[app.js] startup — re-injecting', pendingNew.length, 'pending new row(s) from queue');
+              });
+            } else {
+              _startBackgroundSync();
             }
-            Grid.loadData(result.rows.concat(pendingNew));
-            _startBackgroundSync();
-          });
+
+          } else {
+            // No cache — first-ever load: full fetch required
+            _setLoadingStatus('Loading data\u2026');
+            Sheets.fetchAllRows(function (result) {
+              _hide('screen-loading');
+              if (!result.success) {
+                console.error('[app.js] fetchAllRows failed:', result.error);
+                _showError('Could not load data: ' + result.error);
+                return;
+              }
+              console.log('[app.js] first load — rows received:', result.rows.length);
+
+              Offline.replaceAllRows(result.rows);
+              Offline.setLastSyncTime(result.serverTime);
+
+              Offline.getPendingQueue(function (queueEntries) {
+                var pendingNew = queueEntries
+                  .filter(function (e) { return e.rowData && !e.rowData._row_index; })
+                  .map(function (e) { return e.rowData; });
+                Grid.loadData(result.rows.concat(pendingNew));
+                _startBackgroundSync();
+              });
+            });
+          }
         });
       });
     });
