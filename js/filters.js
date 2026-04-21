@@ -137,6 +137,8 @@ var Filters = (function () {
 
   function _applySearch() {
     var term = _searchTerm.trim().toLowerCase();
+    console.log('[filters.js] _applySearch — term:', JSON.stringify(term),
+      '| visibleCols:', _visibleCols.length);
 
     if (!term) {
       if (typeof Grid !== 'undefined') Grid.applyGlobalSearch(null);

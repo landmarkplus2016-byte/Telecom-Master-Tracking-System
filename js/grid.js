@@ -542,7 +542,30 @@ var Grid = (function () {
   // fire — update the count directly with data.length in that case.
 
   function _hotLoadData(data) {
-    _hot.updateData(data);
+    console.log('[grid.js] _hotLoadData — rows:', data.length,
+      '| updateData?', typeof _hot.updateData,
+      '| conditions:', _savedFilterConditions.length);
+    if (typeof _hot.updateData === 'function') {
+      _hot.updateData(data);
+    } else {
+      // Fallback for environments where updateData is unavailable
+      var conditionsToRestore = _savedFilterConditions.slice();
+      _hot.loadData(data);
+      if (conditionsToRestore.length) {
+        try {
+          var fp = _hot.getPlugin('filters');
+          if (fp) {
+            fp.clearConditions();
+            conditionsToRestore.forEach(function (entry) {
+              entry.conditions.forEach(function (cond) {
+                fp.addCondition(entry.column, { name: cond.name, args: cond.args || [] }, entry.operation || 'conjunction');
+              });
+            });
+            fp.filter();
+          }
+        } catch (e) { /* non-fatal */ }
+      }
+    }
     if (!_savedFilterConditions || !_savedFilterConditions.length) {
       _updateRowCount(data.length);
     }
@@ -1643,12 +1666,11 @@ var Grid = (function () {
    */
   function applyGlobalSearch(fn) {
     _globalSearchFn = fn || null;
-    // Always include rows without _row_index — they are pending new rows
-    // that haven't reached the server yet and must stay visible regardless
-    // of what the search predicate returns on their empty fields.
     _data = _globalSearchFn
       ? _allData.filter(function (r) { return !r._row_index || _globalSearchFn(r); })
       : _allData.slice();
+    console.log('[grid.js] applyGlobalSearch — allData:', _allData.length,
+      '→ filtered:', _data.length, '| fn?', !!fn);
 
     if (_role === 'coordinator') {
       _lockedRows = {};
