@@ -27,7 +27,7 @@
 // Bump CACHE_VERSION to force a full cache refresh on deploy.
 // Old cache names are deleted in the activate handler.
 
-var CACHE_VERSION = 'v24';
+var CACHE_VERSION = 'v25';
 var CACHE_NAME    = 'telecom-tracker-' + CACHE_VERSION;
 
 // ── App shell — files to pre-cache on install ─────────────
@@ -157,6 +157,9 @@ self.addEventListener('activate', function (e) {
 self.addEventListener('fetch', function (e) {
   var url = e.request.url;
 
+  // 0. Ignore non-HTTP schemes (chrome-extension://, data:, etc.)
+  if (!url.startsWith('http://') && !url.startsWith('https://')) return;
+
   // 1. Network-only: Apps Script, Google APIs, fonts
   if (_isNetworkOnly(url)) return;
 
@@ -174,11 +177,13 @@ self.addEventListener('fetch', function (e) {
 
       // Cache miss — try network
       return fetch(e.request).then(function (response) {
-        // Cache successful responses for future offline use
-        if (response && response.status === 200) {
+        // Only cache http/https responses — chrome-extension:// and other
+        // schemes are not supported by the Cache API and will throw.
+        if (response && response.status === 200 &&
+            (url.startsWith('http://') || url.startsWith('https://'))) {
           var clone = response.clone();
           caches.open(CACHE_NAME).then(function (cache) {
-            cache.put(e.request, clone);
+            cache.put(e.request, clone).catch(function () { /* skip uncacheable */ });
           });
         }
         return response;
