@@ -179,13 +179,6 @@ var Grid = (function () {
     // Converting to arrays causes empty cells because HOT uses the key
     // mapping, not array index, when columns[i].data is set.
     _hotLoadData(_data);
-    // When column filters are active, afterFilter (fired inside _hotLoadData)
-    // already set the correct filtered count — don't overwrite it.
-    // When no column filters are active, use _data.length because
-    // _hot.countRows() can transiently return 0 while HOT is still rendering.
-    if (!_savedFilterConditions || !_savedFilterConditions.length) {
-      _updateRowCount(_data.length);
-    }
 
     // Apply pricing calculations and indicators to every loaded row.
     // Pricing must be initialised (Pricing.init called) before loadData.
@@ -542,40 +535,17 @@ var Grid = (function () {
 
   // ── _hotLoadData — load data while preserving active column filters ──
   //
-  // HOT's native loadData() resets the Filters plugin, wiping any active
-  // column conditions the user has set. This helper saves those conditions
-  // before the reload and restores them afterward so column filters survive
-  // delta syncs, global search resets, and row remove/restore operations.
+  // Uses updateData() instead of loadData() so HOT's Filters plugin is NOT
+  // reset on every data change. Any active column conditions are automatically
+  // re-applied by HOT to the new dataset, and afterFilter fires so the count
+  // stays in sync. When no column conditions are active afterFilter does not
+  // fire — update the count directly with data.length in that case.
 
   function _hotLoadData(data) {
-    // Snapshot conditions BEFORE loadData — HOT's internal filter reset fires
-    // afterFilter with [] synchronously during loadData, which would clobber
-    // _savedFilterConditions before we get a chance to restore them.
-    var conditionsToRestore = _savedFilterConditions.slice();
-    _hot.loadData(data);
-    if (conditionsToRestore.length) {
-      _restoreHotFilterConditions(conditionsToRestore);
+    _hot.updateData(data);
+    if (!_savedFilterConditions || !_savedFilterConditions.length) {
+      _updateRowCount(data.length);
     }
-  }
-
-  function _restoreHotFilterConditions(conditionsStack) {
-    try {
-      var fp = _hot && _hot.getPlugin('filters');
-      if (!fp) return;
-      fp.clearConditions();
-      conditionsStack.forEach(function (entry) {
-        entry.conditions.forEach(function (cond) {
-          // HOT 14 signature: addCondition(column, conditionDescriptor, operationType)
-          // conditionDescriptor = { name, args }
-          fp.addCondition(
-            entry.column,
-            { name: cond.name, args: cond.args || [] },
-            entry.operation || 'conjunction'
-          );
-        });
-      });
-      fp.filter();
-    } catch (e) { /* non-fatal — worst case: filter resets visually, no data loss */ }
   }
 
   // ── Handsontable init ─────────────────────────────────────
@@ -1689,10 +1659,6 @@ var Grid = (function () {
 
     if (_hot) {
       _hotLoadData(_data);
-      // Do NOT call _updateRowCount here — afterFilter (fired synchronously
-      // inside _hotLoadData) already updates the count with the correct value.
-      // Calling _hot.countRows() here races HOT's async render and can return
-      // the stale pre-search total (e.g. 6418) instead of the filtered count.
     }
   }
 
@@ -1701,7 +1667,7 @@ var Grid = (function () {
    * Called by the filter panel's "Clear All" button via js/filters.js.
    */
   function clearAllFilters() {
-    _savedFilterConditions = []; // prevent restore after the loadData in applyGlobalSearch
+    _savedFilterConditions = [];
     if (_hot) {
       var filtersPlugin = _hot.getPlugin('filters');
       if (filtersPlugin) {
