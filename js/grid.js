@@ -1675,27 +1675,24 @@ var Grid = (function () {
    * Apply a global search predicate that pre-filters _allData before
    * HOT's own column filters run. Pass null to clear global search.
    * Called by js/filters.js on every search-input change.
+   *
+   * Uses loadData() directly (not updateData) so that HOT fully replaces
+   * its dataset. updateData() can fail to reduce the row count when the
+   * filtered array contains the same object references that HOT already
+   * holds — it treats them as "updates to existing rows" and keeps the
+   * full dataset. loadData() always performs a complete replacement.
    */
   function applyGlobalSearch(fn) {
     _globalSearchFn = fn || null;
-
-    var prevLen = _data.length;
 
     _data = _globalSearchFn
       ? _allData.filter(function (r) { return !r._row_index || _globalSearchFn(r); })
       : _allData.slice();
 
-    // Sample check: does the FIRST row in _allData match the predicate?
-    var sampleResult = fn && _allData.length
-      ? fn(_allData[0])
-      : 'n/a (no fn)';
-
     console.warn('[grid.js] applyGlobalSearch',
       '| allData:', _allData.length,
-      '| prev _data:', prevLen, '\u2192 new _data:', _data.length,
-      '| fn?', !!fn,
-      '| _hot?', !!_hot,
-      '| row[0] matches?', sampleResult);
+      '\u2192 _data:', _data.length,
+      '| fn?', !!fn);
 
     if (_role === 'coordinator') {
       _lockedRows = {};
@@ -1704,19 +1701,18 @@ var Grid = (function () {
       });
     }
 
-    if (_hot) {
-      _hotLoadData(_data);
+    if (!_hot) return;
 
-      // Deferred verification — confirms HOT actually updated
-      var expectedLen = _data.length;
-      setTimeout(function () {
-        var actual = _hot ? _hot.countRows() : 'n/a';
-        console.warn('[grid.js] applyGlobalSearch (deferred check)',
-          '| expected HOT rows:', expectedLen,
-          '| actual HOT.countRows():', actual,
-          '| match:', actual === expectedLen ? '\u2705 OK' : '\u274C MISMATCH');
-      }, 100);
-    }
+    // Clear saved column-filter conditions so _hotLoadData's row-count
+    // branch fires and the status bar reflects the filtered count.
+    _savedFilterConditions = [];
+
+    // loadData() guarantees a full dataset replacement — critical here
+    // because _data is a filtered subset of objects that also live in
+    // _allData, and updateData() may merge rather than replace in that case.
+    _hot.loadData(_data);
+    _hot.render();
+    _updateRowCount(_data.length);
   }
 
   /**
