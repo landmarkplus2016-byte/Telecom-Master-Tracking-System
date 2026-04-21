@@ -533,22 +533,23 @@ var Grid = (function () {
     }
   }
 
-  // ── _hotLoadData — load data while preserving active column filters ──
+  // ── _hotLoadData — load data into HOT, preserving column filters ──
   //
-  // Uses updateData() instead of loadData() so HOT's Filters plugin is NOT
-  // reset on every data change. Any active column conditions are automatically
-  // re-applied by HOT to the new dataset, and afterFilter fires so the count
-  // stays in sync. When no column conditions are active afterFilter does not
-  // fire — update the count directly with data.length in that case.
+  // Preferred path: updateData() keeps the Filters plugin state intact so any
+  // active column conditions are re-applied automatically to the new dataset.
+  //
+  // Fallback path (updateData unavailable): loadData() + manual condition
+  // restore so filters survive a full data reload.
+  //
+  // An explicit render() call follows both paths because some HOT builds defer
+  // the repaint and the grid would otherwise appear stale.
 
   function _hotLoadData(data) {
-    console.log('[grid.js] _hotLoadData — rows:', data.length,
-      '| updateData?', typeof _hot.updateData,
-      '| conditions:', _savedFilterConditions.length);
+    var rowsBefore = _hot.countRows();
+
     if (typeof _hot.updateData === 'function') {
       _hot.updateData(data);
     } else {
-      // Fallback for environments where updateData is unavailable
       var conditionsToRestore = _savedFilterConditions.slice();
       _hot.loadData(data);
       if (conditionsToRestore.length) {
@@ -558,7 +559,9 @@ var Grid = (function () {
             fp.clearConditions();
             conditionsToRestore.forEach(function (entry) {
               entry.conditions.forEach(function (cond) {
-                fp.addCondition(entry.column, { name: cond.name, args: cond.args || [] }, entry.operation || 'conjunction');
+                fp.addCondition(entry.column,
+                  { name: cond.name, args: cond.args || [] },
+                  entry.operation || 'conjunction');
               });
             });
             fp.filter();
@@ -566,6 +569,15 @@ var Grid = (function () {
         } catch (e) { /* non-fatal */ }
       }
     }
+
+    // Force repaint — some HOT builds defer rendering after updateData/loadData.
+    _hot.render();
+
+    var rowsAfter = _hot.countRows();
+    console.warn('[grid.js] _hotLoadData — data:', data.length,
+      '| HOT rows:', rowsBefore, '\u2192', rowsAfter,
+      '| path:', (typeof _hot.updateData === 'function' ? 'updateData' : 'loadData'));
+
     if (!_savedFilterConditions || !_savedFilterConditions.length) {
       _updateRowCount(data.length);
     }
@@ -1666,11 +1678,24 @@ var Grid = (function () {
    */
   function applyGlobalSearch(fn) {
     _globalSearchFn = fn || null;
+
+    var prevLen = _data.length;
+
     _data = _globalSearchFn
       ? _allData.filter(function (r) { return !r._row_index || _globalSearchFn(r); })
       : _allData.slice();
-    console.log('[grid.js] applyGlobalSearch — allData:', _allData.length,
-      '→ filtered:', _data.length, '| fn?', !!fn);
+
+    // Sample check: does the FIRST row in _allData match the predicate?
+    var sampleResult = fn && _allData.length
+      ? fn(_allData[0])
+      : 'n/a (no fn)';
+
+    console.warn('[grid.js] applyGlobalSearch',
+      '| allData:', _allData.length,
+      '| prev _data:', prevLen, '\u2192 new _data:', _data.length,
+      '| fn?', !!fn,
+      '| _hot?', !!_hot,
+      '| row[0] matches?', sampleResult);
 
     if (_role === 'coordinator') {
       _lockedRows = {};
@@ -1681,6 +1706,16 @@ var Grid = (function () {
 
     if (_hot) {
       _hotLoadData(_data);
+
+      // Deferred verification — confirms HOT actually updated
+      var expectedLen = _data.length;
+      setTimeout(function () {
+        var actual = _hot ? _hot.countRows() : 'n/a';
+        console.warn('[grid.js] applyGlobalSearch (deferred check)',
+          '| expected HOT rows:', expectedLen,
+          '| actual HOT.countRows():', actual,
+          '| match:', actual === expectedLen ? '\u2705 OK' : '\u274C MISMATCH');
+      }, 100);
     }
   }
 
