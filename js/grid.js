@@ -511,7 +511,10 @@ var Grid = (function () {
     }
 
     if (hasNewRows) {
-      _hotLoadData(_data);
+      var deltaData = _globalSearchFn
+        ? _data.map(function (r) { return Object.assign({}, r); })
+        : _data;
+      _hotLoadData(deltaData);
       // afterFilter (fired inside _hotLoadData) already calls _updateRowCount
       // with the correct post-filter count. Do NOT call _updateRowCount here —
       // it would overwrite the filtered count (e.g. 3 rows) with _data.length
@@ -1690,13 +1693,9 @@ var Grid = (function () {
 
     if (!_hot) return;
 
-    // Fresh object copies so HOT sees genuinely new references and performs
-    // a full dataset replacement — updateData/loadData with same references
-    // can silently treat filtered rows as "updates" and keep the full count.
     var fresh = _data.map(function (r) { return Object.assign({}, r); });
     _savedFilterConditions = [];
-    _hot.loadData(fresh);
-    _hot.render();
+    _hot.updateSettings({ data: fresh });
     _updateRowCount(_data.length);
   }
 
