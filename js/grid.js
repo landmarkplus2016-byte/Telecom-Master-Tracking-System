@@ -101,6 +101,7 @@ var Grid = (function () {
   var _jcErrors             = {};     // { physicalRowIndex: true } — rows with a JC conflict; drives red highlight
   var _changedRows          = {};     // { physicalRowIndex: timerId } — manager: coordinator just saved this row
   var _savedFilterConditions = [];    // last conditionsStack from afterFilter — restored after any loadData call
+  var _inGlobalSearch        = false; // true while applyGlobalSearch is running — suppresses afterFilter re-entry
 
   // ── Public API ────────────────────────────────────────────
 
@@ -666,6 +667,7 @@ var Grid = (function () {
       dropdownMenu:       ['filter_by_condition', '---------', 'filter_by_value', '---------', 'filter_action_bar'],
 
       afterFilter: function (conditionsStack) {
+        if (_inGlobalSearch) return;
         // Save a deep copy of the current filter state.
         // _hotLoadData reads this to re-apply conditions after every loadData call.
         _savedFilterConditions = JSON.parse(JSON.stringify(conditionsStack || []));
@@ -1693,9 +1695,10 @@ var Grid = (function () {
 
     if (!_hot) return;
 
-    var fresh = _data.map(function (r) { return Object.assign({}, r); });
+    _inGlobalSearch = true;
     _savedFilterConditions = [];
-    _hot.updateSettings({ data: fresh });
+    _hot.loadData(_data.slice());
+    _inGlobalSearch = false;
     _updateRowCount(_data.length);
   }
 
