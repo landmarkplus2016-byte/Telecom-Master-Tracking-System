@@ -661,7 +661,6 @@ var Grid = (function () {
       // an Excel-style popover with condition + value filter options.
       filters:            true,
       dropdownMenu:       ['filter_by_condition', '---------', 'filter_by_value', '---------', 'filter_action_bar'],
-      search:             true,
 
       afterFilter: function (conditionsStack) {
         // Save a deep copy of the current filter state.
@@ -1683,21 +1682,22 @@ var Grid = (function () {
    * holds — it treats them as "updates to existing rows" and keeps the
    * full dataset. loadData() always performs a complete replacement.
    */
-  function applyGlobalSearch(term) {
-    _globalSearchFn = null; // unused with Search plugin approach
+  function applyGlobalSearch(fn) {
+    _globalSearchFn = fn || null;
+    _data = _globalSearchFn
+      ? _allData.filter(_globalSearchFn)
+      : _allData.slice();
 
     if (!_hot) return;
 
-    var plugin = _hot.getPlugin('search');
-    if (plugin) {
-      plugin.query(term || '');
-    }
-
+    // Fresh object copies so HOT sees genuinely new references and performs
+    // a full dataset replacement — updateData/loadData with same references
+    // can silently treat filtered rows as "updates" and keep the full count.
+    var fresh = _data.map(function (r) { return Object.assign({}, r); });
+    _savedFilterConditions = [];
+    _hot.loadData(fresh);
     _hot.render();
-    _updateRowCount(_hot.countRows());
-
-    console.warn('[grid.js] applyGlobalSearch — term:', JSON.stringify(term || ''),
-      '| HOT rows after render:', _hot.countRows());
+    _updateRowCount(_data.length);
   }
 
   /**

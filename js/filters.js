@@ -137,12 +137,28 @@ var Filters = (function () {
 
   function _applySearch(forcedTerm) {
     var term = (forcedTerm !== undefined ? forcedTerm : _searchTerm).trim().toLowerCase();
-    console.warn('[filters.js] _applySearch — term:', JSON.stringify(term));
+    console.warn('[filters.js] _applySearch — term:', JSON.stringify(term),
+      '| visibleCols:', _visibleCols.length);
 
-    // HOT Search plugin handles highlighting via Grid.applyGlobalSearch(term).
-    // Pass null when term is empty to clear the search state.
+    if (!term) {
+      if (typeof Grid !== 'undefined') Grid.applyGlobalSearch(null);
+      _refreshPanel();
+      _refreshFilterBtn();
+      return;
+    }
+
+    var cols = _visibleCols.filter(function (c) {
+      return c.key !== '_price_indicator';
+    });
+
     if (typeof Grid !== 'undefined') {
-      Grid.applyGlobalSearch(term || null);
+      Grid.applyGlobalSearch(function (row) {
+        for (var i = 0; i < cols.length; i++) {
+          var val = String(row[cols[i].key] || '').toLowerCase();
+          if (val.indexOf(term) !== -1) return true;
+        }
+        return false;
+      });
     }
 
     _refreshPanel();
