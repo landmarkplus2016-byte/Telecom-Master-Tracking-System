@@ -94,14 +94,14 @@ var Filters = (function () {
     var clearBtn = document.getElementById('gs-clear');
 
     if (input) {
-      input.addEventListener('input', function () {
-        _searchTerm = input.value;
+      input.addEventListener('input', function (e) {
+        _searchTerm = e.target.value;
         _toggleClearBtn(clearBtn, !!_searchTerm);
         // Refresh the panel immediately so the search badge appears as the
         // user types — don't wait for the debounce to fire.
         _refreshPanel();
         _refreshFilterBtn();
-        _scheduleSearch();
+        _scheduleSearch(_searchTerm);
       });
 
       input.addEventListener('keydown', function (e) {
@@ -130,13 +130,13 @@ var Filters = (function () {
     else       btn.setAttribute('hidden', '');
   }
 
-  function _scheduleSearch() {
+  function _scheduleSearch(term) {
     if (_debounce) clearTimeout(_debounce);
-    _debounce = setTimeout(_applySearch, 140);
+    _debounce = setTimeout(function () { _applySearch(term); }, 140);
   }
 
-  function _applySearch() {
-    var term = _searchTerm.trim().toLowerCase();
+  function _applySearch(forcedTerm) {
+    var term = (forcedTerm !== undefined ? forcedTerm : _searchTerm).trim().toLowerCase();
     console.warn('[filters.js] _applySearch — term:', JSON.stringify(term),
       '| visibleCols:', _visibleCols.length);
 
