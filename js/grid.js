@@ -1695,9 +1695,11 @@ var Grid = (function () {
 
     if (!_hot) return;
 
+    var fresh = _data.map(function (r) { return Object.assign({}, r); });
     _inGlobalSearch = true;
     _savedFilterConditions = [];
-    _hot.loadData(_data.slice());
+    _hot.loadData(fresh);
+    _hot.render();
     _inGlobalSearch = false;
     _updateRowCount(_data.length);
   }
