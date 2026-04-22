@@ -661,6 +661,7 @@ var Grid = (function () {
       // an Excel-style popover with condition + value filter options.
       filters:            true,
       dropdownMenu:       ['filter_by_condition', '---------', 'filter_by_value', '---------', 'filter_action_bar'],
+      search:             true,
 
       afterFilter: function (conditionsStack) {
         // Save a deep copy of the current filter state.
@@ -1682,37 +1683,21 @@ var Grid = (function () {
    * holds — it treats them as "updates to existing rows" and keeps the
    * full dataset. loadData() always performs a complete replacement.
    */
-  function applyGlobalSearch(fn) {
-    _globalSearchFn = fn || null;
-
-    _data = _globalSearchFn
-      ? _allData.filter(function (r) { return !r._row_index || _globalSearchFn(r); })
-      : _allData.slice();
-
-    console.warn('[grid.js] applyGlobalSearch',
-      '| allData:', _allData.length,
-      '\u2192 _data:', _data.length,
-      '| fn?', !!fn);
-
-    if (_role === 'coordinator') {
-      _lockedRows = {};
-      _data.forEach(function (row, idx) {
-        if (row && row._locked) _lockedRows[idx] = true;
-      });
-    }
+  function applyGlobalSearch(term) {
+    _globalSearchFn = null; // unused with Search plugin approach
 
     if (!_hot) return;
 
-    // Clear saved column-filter conditions so _hotLoadData's row-count
-    // branch fires and the status bar reflects the filtered count.
-    _savedFilterConditions = [];
+    var plugin = _hot.getPlugin('search');
+    if (plugin) {
+      plugin.query(term || '');
+    }
 
-    // loadData() guarantees a full dataset replacement — critical here
-    // because _data is a filtered subset of objects that also live in
-    // _allData, and updateData() may merge rather than replace in that case.
-    _hot.loadData(_data);
     _hot.render();
-    _updateRowCount(_data.length);
+    _updateRowCount(_hot.countRows());
+
+    console.warn('[grid.js] applyGlobalSearch — term:', JSON.stringify(term || ''),
+      '| HOT rows after render:', _hot.countRows());
   }
 
   /**
