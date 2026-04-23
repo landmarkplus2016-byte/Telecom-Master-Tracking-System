@@ -1692,6 +1692,7 @@ var Grid = (function () {
     _data = _globalSearchFn
       ? _allData.filter(_globalSearchFn)
       : _allData.slice();
+    console.log('[search] fn:', typeof _globalSearchFn, '| allData:', _allData.length, '| filtered:', _data.length);
     if (!_hot) return;
 
     // Flag must be set before ANY HOT or plugin calls below, because
