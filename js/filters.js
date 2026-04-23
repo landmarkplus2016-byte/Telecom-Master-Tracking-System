@@ -95,7 +95,6 @@ var Filters = (function () {
 
     if (input) {
       input.addEventListener('input', function (e) {
-        console.log('[filters] input fired — term:', searchInput.value, '| calling applyGlobalSearch?');
         _searchTerm = e.target.value;
         _toggleClearBtn(clearBtn, !!_searchTerm);
         // Refresh the panel immediately so the search badge appears as the
