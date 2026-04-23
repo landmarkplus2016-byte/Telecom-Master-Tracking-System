@@ -1692,15 +1692,56 @@ var Grid = (function () {
     _data = _globalSearchFn
       ? _allData.filter(_globalSearchFn)
       : _allData.slice();
-
     if (!_hot) return;
 
-    var fresh = _data.map(function (r) { return Object.assign({}, r); });
+    // Flag must be set before ANY HOT or plugin calls below, because
+    // loadData and fp.filter() both fire afterFilter synchronously (small
+    // datasets) or via deferred frame (large datasets). The flag must
+    // remain true until the next tick so deferred callbacks are also
+    // suppressed.
     _inGlobalSearch = true;
     _savedFilterConditions = [];
+
+    // Clear HOT's own column-filter conditions so they are not re-applied
+    // to the reduced dataset after loadData. (Does not fire afterFilter.)
+    var fp = _hot.getPlugin('filters');
+    if (fp) fp.clearConditions();
+
+    // Load the filtered subset. Object.assign copies are required because
+    // updateData() (used by _hotLoadData) compares object references and
+    // treats same-reference objects as "unchanged rows", keeping the full
+    // source count instead of reducing it.
+    var fresh = _data.map(function (r) { return Object.assign({}, r); });
     _hot.loadData(fresh);
+
+    // CRITICAL: force the Filters plugin to synchronously rebuild TrimRows
+    // for the new source data RIGHT NOW, before render(). Without this,
+    // HOT defers TrimRows updates to the next animation frame on large
+    // datasets. render() then paints based on the old TrimRows state
+    // (6418 rows marked visible) even though source data is now 50 rows.
+    // _inGlobalSearch = true means afterFilter returns immediately here,
+    // suppressing any external Filters.onColumnFilterChanged notification.
+    if (fp) fp.filter();
+
+    // Repaint the viewport, then update the scrollbar height to match the
+    // new row count. refreshDimensions() is what public loadData() calls
+    // (via setTimeout) — applyGlobalSearch bypasses loadData, so we must
+    // call it explicitly or the scroll height stays at 6418 rows.
     _hot.render();
-    _inGlobalSearch = false;
+    _hot.refreshDimensions();
+
+    // Defer clearing the flag by one tick so any HOT-internal async
+    // callbacks that fire post-frame (Filters plugin deferred re-filter
+    // at scale) are still suppressed by afterFilter's early return.
+    // Guard against rapid successive searches: only clear if this is
+    // still the most recent search predicate when the tick fires.
+    var searchGuard = _globalSearchFn;
+    setTimeout(function () {
+      if (_globalSearchFn === searchGuard) {
+        _inGlobalSearch = false;
+      }
+    }, 0);
+
     _updateRowCount(_data.length);
   }
 
