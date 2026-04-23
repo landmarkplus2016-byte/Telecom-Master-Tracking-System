@@ -187,11 +187,21 @@ var Grid = (function () {
     // at the end — without this, 6000+ rows × 4 setDataAtRowProp calls each
     // trigger a re-render, freezing the browser for several seconds.
     if (typeof Pricing !== 'undefined' && Pricing.isReady()) {
-      _hot.batch(function () {
-        for (var i = 0; i < _data.length; i++) {
-          _applyPricing(i);
+      var _pricingChunkIdx = 0;
+      var CHUNK = 200;
+      function _pricingChunk() {
+        var end = Math.min(_pricingChunkIdx + CHUNK, _data.length);
+        _hot.batch(function () {
+          for (var i = _pricingChunkIdx; i < end; i++) {
+            _applyPricing(i);
+          }
+        });
+        _pricingChunkIdx = end;
+        if (_pricingChunkIdx < _data.length) {
+          setTimeout(_pricingChunk, 0);
         }
-      });
+      }
+      setTimeout(_pricingChunk, 0);
     }
 
     // Re-measure dimensions after data loads so stretchH:'all' and the
@@ -200,6 +210,7 @@ var Grid = (function () {
     setTimeout(function () {
       if (_hot) _hot.refreshDimensions();
       _fixLeftCloneHeight();
+      if (typeof Filters !== 'undefined') Filters.onDataChanged();
     }, 0);
   }
 
@@ -665,7 +676,7 @@ var Grid = (function () {
       // an Excel-style popover with condition + value filter options.
       filters:            true,
       trimRows:           true,
-      dropdownMenu:       ['filter_by_condition', '---------', 'filter_by_value', '---------', 'filter_action_bar'],
+      dropdownMenu:       ['filter_by_condition', '---------', 'filter_action_bar'],
 
       afterFilter: function (conditionsStack) {
         if (_inGlobalSearch) return;
@@ -1695,10 +1706,6 @@ var Grid = (function () {
       : _allData.slice();
     if (!_hot) return;
 
-    var _diagTrim = _hot.getPlugin('trimRows');
-    var _diagFp   = _hot.getPlugin('filters');
-    document.title = 'trim=' + !!_diagTrim + '|fp=' + !!_diagFp + '|allData=' + _allData.length;
-
     _inGlobalSearch = true;
     _savedFilterConditions = [];
 
@@ -1734,8 +1741,7 @@ var Grid = (function () {
       if (_globalSearchFn === searchGuard) _inGlobalSearch = false;
     }, 0);
 
-    document.title += '|afterCnt=' + _hot.countRows();
-    _updateRowCount(_hot.countRows());
+    _updateRowCount(_globalSearchFn ? _data.length : _allData.length);
   }
 
   /**
