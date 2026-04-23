@@ -664,6 +664,7 @@ var Grid = (function () {
       // dropdownMenu renders the ▼ arrow on every column header that opens
       // an Excel-style popover with condition + value filter options.
       filters:            true,
+      trimRows:           true,
       dropdownMenu:       ['filter_by_condition', '---------', 'filter_by_value', '---------', 'filter_action_bar'],
 
       afterFilter: function (conditionsStack) {
@@ -1688,21 +1689,30 @@ var Grid = (function () {
    * full dataset. loadData() always performs a complete replacement.
    */
   function applyGlobalSearch(fn) {
-    document.title = 'Telecom Master Tracking System'; // restore title
     _globalSearchFn = fn || null;
     _data = _globalSearchFn
       ? _allData.filter(_globalSearchFn)
       : _allData.slice();
     if (!_hot) return;
 
+    _inGlobalSearch = true;
+    _savedFilterConditions = [];
+
+    var fp         = _hot.getPlugin('filters');
     var trimPlugin = _hot.getPlugin('trimRows');
-    if (!trimPlugin) return;
 
-    // Always reset to show all rows first
-    trimPlugin.untrimAll();
+    // Phase 1: use the Filters plugin to cleanly reset TrimRows state.
+    // fp.filter() with no conditions calls trimPlugin.untrimAll() internally.
+    // _inGlobalSearch=true blocks our afterFilter handler from firing.
+    if (fp) {
+      fp.clearConditions();
+      fp.filter();
+    } else if (trimPlugin) {
+      trimPlugin.untrimAll();
+    }
 
-    // Hide rows that don't match the global search
-    if (_globalSearchFn) {
+    // Phase 2: hide every row that does not match the global search.
+    if (_globalSearchFn && trimPlugin) {
       var toHide = [];
       for (var i = 0; i < _allData.length; i++) {
         if (!_globalSearchFn(_allData[i])) toHide.push(i);
@@ -1712,6 +1722,14 @@ var Grid = (function () {
 
     _hot.render();
     _hot.refreshDimensions();
+
+    // Defer flag clear by one tick so any HOT async callbacks
+    // fired post-render are still suppressed.
+    var searchGuard = _globalSearchFn;
+    setTimeout(function () {
+      if (_globalSearchFn === searchGuard) _inGlobalSearch = false;
+    }, 0);
+
     _updateRowCount(_hot.countRows());
   }
 
