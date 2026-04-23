@@ -95,6 +95,7 @@ var Filters = (function () {
 
     if (input) {
       input.addEventListener('input', function (e) {
+        console.log('[filters] input fired — term:', searchInput.value, '| calling applyGlobalSearch?');
         _searchTerm = e.target.value;
         _toggleClearBtn(clearBtn, !!_searchTerm);
         // Refresh the panel immediately so the search badge appears as the
@@ -141,6 +142,7 @@ var Filters = (function () {
       '| visibleCols:', _visibleCols.length);
 
     if (!term) {
+      console.log('[filters] calling applyGlobalSearch with fn:', typeof null);
       if (typeof Grid !== 'undefined') Grid.applyGlobalSearch(null);
       _refreshPanel();
       _refreshFilterBtn();
@@ -152,13 +154,15 @@ var Filters = (function () {
     });
 
     if (typeof Grid !== 'undefined') {
-      Grid.applyGlobalSearch(function (row) {
+      var fn = function (row) {
         for (var i = 0; i < cols.length; i++) {
           var val = String(row[cols[i].key] || '').toLowerCase();
           if (val.indexOf(term) !== -1) return true;
         }
         return false;
-      });
+      };
+      console.log('[filters] calling applyGlobalSearch with fn:', typeof fn);
+      Grid.applyGlobalSearch(fn);
     }
 
     _refreshPanel();
