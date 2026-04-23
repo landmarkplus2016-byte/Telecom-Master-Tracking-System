@@ -1688,6 +1688,7 @@ var Grid = (function () {
    * full dataset. loadData() always performs a complete replacement.
    */
   function applyGlobalSearch(fn) {
+    document.title = 'SEARCH=' + (fn ? 'YES:' + Object.keys(fn).length : 'NULL');
     _globalSearchFn = fn || null;
     _data = _globalSearchFn
       ? _allData.filter(_globalSearchFn)
