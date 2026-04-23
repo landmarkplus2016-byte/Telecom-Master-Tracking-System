@@ -1695,6 +1695,10 @@ var Grid = (function () {
       : _allData.slice();
     if (!_hot) return;
 
+    var _diagTrim = _hot.getPlugin('trimRows');
+    var _diagFp   = _hot.getPlugin('filters');
+    document.title = 'trim=' + !!_diagTrim + '|fp=' + !!_diagFp + '|allData=' + _allData.length;
+
     _inGlobalSearch = true;
     _savedFilterConditions = [];
 
@@ -1730,6 +1734,7 @@ var Grid = (function () {
       if (_globalSearchFn === searchGuard) _inGlobalSearch = false;
     }, 0);
 
+    document.title += '|afterCnt=' + _hot.countRows();
     _updateRowCount(_hot.countRows());
   }
 
