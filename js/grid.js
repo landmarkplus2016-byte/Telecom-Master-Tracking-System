@@ -187,21 +187,11 @@ var Grid = (function () {
     // at the end — without this, 6000+ rows × 4 setDataAtRowProp calls each
     // trigger a re-render, freezing the browser for several seconds.
     if (typeof Pricing !== 'undefined' && Pricing.isReady()) {
-      var _pricingChunkIdx = 0;
-      var CHUNK = 200;
-      function _pricingChunk() {
-        var end = Math.min(_pricingChunkIdx + CHUNK, _data.length);
-        _hot.batch(function () {
-          for (var i = _pricingChunkIdx; i < end; i++) {
-            _applyPricing(i);
-          }
-        });
-        _pricingChunkIdx = end;
-        if (_pricingChunkIdx < _data.length) {
-          setTimeout(_pricingChunk, 0);
+      _hot.batch(function () {
+        for (var i = 0; i < _data.length; i++) {
+          _applyPricing(i);
         }
-      }
-      setTimeout(_pricingChunk, 0);
+      });
     }
 
     // Re-measure dimensions after data loads so stretchH:'all' and the
@@ -1757,6 +1747,8 @@ var Grid = (function () {
         filtersPlugin.filter(); // fires afterFilter with [] → keeps _savedFilterConditions in sync
       }
     }
+    var trimPlugin = _hot ? _hot.getPlugin('trimRows') : null;
+    if (trimPlugin) trimPlugin.untrimAll();
     applyGlobalSearch(null);
   }
 
