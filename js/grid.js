@@ -1713,7 +1713,7 @@ var Grid = (function () {
     // treats same-reference objects as "unchanged rows", keeping the full
     // source count instead of reducing it.
     var fresh = _data.map(function (r) { return Object.assign({}, r); });
-    _hot.loadData(fresh);
+    _hot.updateSettings({ data: fresh });
 
     // CRITICAL: force the Filters plugin to synchronously rebuild TrimRows
     // for the new source data RIGHT NOW, before render(). Without this,
