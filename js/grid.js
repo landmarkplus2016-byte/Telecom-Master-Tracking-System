@@ -1098,7 +1098,17 @@ var Grid = (function () {
   function _applyPricing(rowIdx, prevVersion) {
     if (!_hot || !Pricing.isReady()) return;
 
-    var row        = _hot.getSourceDataAtRow(rowIdx) || {};
+    // Skip pricing recalculation for pre-2025 rows that already have a price.
+    // These rows were priced under old rates that are no longer in the price list.
+    // Recalculating would overwrite correct historical prices with zeros (MISS).
+    // The user can still manually edit new_price on these rows if needed.
+    var row = _hot.getSourceDataAtRow(rowIdx) || {};
+    if (row.new_price && row.task_date) {
+      var yearMatch = String(row.task_date).match(/(\d{4})/);
+      var year = yearMatch ? parseInt(yearMatch[1], 10) : 9999;
+      if (year < 2025) return;
+    }
+
     var taskDate   = String(row.task_date        || '').trim();
     var lineItem   = String(row.line_item        || '').trim();
     var qty        = parseFloat(row.absolute_quantity) || 0;  // "Quantity" — manual
