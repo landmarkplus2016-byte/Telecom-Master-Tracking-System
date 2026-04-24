@@ -665,7 +665,6 @@ var Grid = (function () {
       // dropdownMenu renders the ▼ arrow on every column header that opens
       // an Excel-style popover with condition + value filter options.
       filters:            true,
-      trimRows:           true,
       dropdownMenu:       ['filter_by_condition', '---------', 'filter_action_bar'],
 
       afterFilter: function (conditionsStack) {
@@ -1701,47 +1700,34 @@ var Grid = (function () {
    */
   function applyGlobalSearch(fn) {
     _globalSearchFn = fn || null;
-    _data = _globalSearchFn
-      ? _allData.filter(_globalSearchFn)
-      : _allData.slice();
+    _data = _globalSearchFn ? _allData.filter(_globalSearchFn) : _allData.slice();
     if (!_hot) return;
 
     _inGlobalSearch = true;
-    _savedFilterConditions = [];
+    _hot.loadData(_data);
 
-    var fp         = _hot.getPlugin('filters');
-    var trimPlugin = _hot.getPlugin('trimRows');
-
-    // Phase 1: use the Filters plugin to cleanly reset TrimRows state.
-    // fp.filter() with no conditions calls trimPlugin.untrimAll() internally.
-    // _inGlobalSearch=true blocks our afterFilter handler from firing.
-    if (fp) {
-      fp.clearConditions();
-      fp.filter();
-    } else if (trimPlugin) {
-      trimPlugin.untrimAll();
-    }
-
-    // Phase 2: hide every row that does not match the global search.
-    if (_globalSearchFn && trimPlugin) {
-      var toHide = [];
-      for (var i = 0; i < _allData.length; i++) {
-        if (!_globalSearchFn(_allData[i])) toHide.push(i);
-      }
-      if (toHide.length) trimPlugin.trimRows(toHide);
+    if (_savedFilterConditions && _savedFilterConditions.length) {
+      try {
+        var fp = _hot.getPlugin('filters');
+        if (fp) {
+          fp.clearConditions();
+          _savedFilterConditions.forEach(function (entry) {
+            entry.conditions.forEach(function (cond) {
+              fp.addCondition(entry.column, { name: cond.name, args: cond.args || [] }, entry.operation || 'conjunction');
+            });
+          });
+          fp.filter();
+        }
+      } catch (e) {}
     }
 
     _hot.render();
-    _hot.refreshDimensions();
 
-    // Defer flag clear by one tick so any HOT async callbacks
-    // fired post-render are still suppressed.
     var searchGuard = _globalSearchFn;
-    setTimeout(function () {
-      if (_globalSearchFn === searchGuard) _inGlobalSearch = false;
-    }, 0);
+    setTimeout(function () { if (_globalSearchFn === searchGuard) _inGlobalSearch = false; }, 0);
 
-    _updateRowCount(_globalSearchFn ? _data.length : _allData.length);
+    _updateRowCount(_data.length);
+    if (typeof Filters !== 'undefined') Filters.onDataChanged();
   }
 
   /**
@@ -1757,8 +1743,6 @@ var Grid = (function () {
         filtersPlugin.filter(); // fires afterFilter with [] → keeps _savedFilterConditions in sync
       }
     }
-    var trimPlugin = _hot ? _hot.getPlugin('trimRows') : null;
-    if (trimPlugin) trimPlugin.untrimAll();
     applyGlobalSearch(null);
   }
 
