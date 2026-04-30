@@ -143,54 +143,82 @@ var Db = (function () {
   }
 
   /**
-   * Load DuckDB WASM and open the OPFS-backed database.
+   * Load DuckDB WASM and open the database.
    * Idempotent — safe to call multiple times.
    *
-   * Falls back to in-memory if OPFS is unavailable (first load before
-   * the service worker is active, or browser without OPFS support).
+   * Open strategy (three attempts, each with a fresh AsyncDuckDB instance):
+   *   1. OPFS — persistent across page reloads
+   *   2. OPFS again — after deleting a corrupt/stale file from a previous run
+   *   3. In-memory — always available, resets on reload
+   *
+   * A failed open() corrupts the internal DuckDB state, so each retry must
+   * use a brand-new AsyncDuckDB instance + worker.
    */
   async function init() {
     if (_ready) return;
 
     var d = await _loadDuckDB();
 
-    console.log('[Db] init() — selecting bundle...');
     var bundles = d.getJsDelivrBundles();
     var bundle  = await d.selectBundle(bundles);
     console.log('[Db] bundle:', bundle.mainModule);
 
-    // Blob worker: same-origin, sidesteps COEP worker-script restrictions.
-    // importScripts() inside the worker fetches the CDN worker; CDN responses
-    // go through our SW which stamps CORP headers on them.
-    var workerBlob = new Blob(
-      ['importScripts("' + bundle.mainWorker + '");'],
-      { type: 'text/javascript' }
-    );
-    var workerUrl = URL.createObjectURL(workerBlob);
-    var worker    = new Worker(workerUrl);
-    URL.revokeObjectURL(workerUrl);
-
-    // VoidLogger suppresses DuckDB's verbose console output (query echoes,
-    // internal warnings).  Real errors still surface via our .catch() handlers.
-    var logger = new d.VoidLogger();
-    _db = new d.AsyncDuckDB(logger, worker);
-
-    // pthreadWorker is only present in the COI build (SharedArrayBuffer).
-    await _db.instantiate(bundle.mainModule, bundle.pthreadWorker);
-
-    // Try OPFS first; fall back to in-memory if not available.
-    try {
-      await _db.open({
-        path:       'opfs://' + DB_FILE,
-        accessMode: d.DuckDBAccessMode.READ_WRITE,
-      });
-      _opfs = true;
-      console.log('[Db] OPFS database opened:', DB_FILE);
-    } catch (e) {
-      console.warn('[Db] OPFS unavailable, using in-memory:', e.message);
-      await _db.open({ path: ':memory:' });
-      _opfs = false;
+    // Factory: create a fresh worker + AsyncDuckDB pair.
+    // VoidLogger suppresses DuckDB's verbose console output; real errors
+    // still surface through our .catch() handlers.
+    function _newDb() {
+      var blob = new Blob(
+        ['importScripts("' + bundle.mainWorker + '");'],
+        { type: 'text/javascript' }
+      );
+      var url = URL.createObjectURL(blob);
+      var w   = new Worker(url);
+      URL.revokeObjectURL(url);
+      return new d.AsyncDuckDB(new d.VoidLogger(), w);
     }
+
+    // Three-pass open loop:
+    //   pass 0 — try OPFS as-is
+    //   pass 1 — delete the OPFS file (handles corrupt/stale file), retry OPFS
+    //   pass 2 — give up on OPFS, use in-memory
+    var opened = false;
+
+    for (var pass = 0; pass < 3 && !opened; pass++) {
+      // Terminate any previously failed instance before creating a new one.
+      if (_db) { try { await _db.terminate(); } catch (_) {} }
+      _db = _newDb();
+      await _db.instantiate(bundle.mainModule, bundle.pthreadWorker);
+
+      try {
+        if (pass === 2) {
+          // Final fallback: in-memory (never fails)
+          await _db.open({ path: ':memory:' });
+          _opfs = false;
+          console.log('[Db] using in-memory database');
+        } else {
+          if (pass === 1) {
+            // Remove the stale/corrupt OPFS file so DuckDB gets a clean slate
+            try {
+              var dir = await navigator.storage.getDirectory();
+              await dir.removeEntry(DB_FILE);
+              console.log('[Db] removed stale OPFS file — retrying');
+            } catch (_) { /* file didn't exist — nothing to remove */ }
+          }
+          await _db.open({
+            path:       'opfs://' + DB_FILE,
+            accessMode: d.DuckDBAccessMode.READ_WRITE,
+          });
+          _opfs = true;
+          console.log('[Db] OPFS opened (pass ' + pass + '):', DB_FILE);
+        }
+        opened = true;
+
+      } catch (e) {
+        console.warn('[Db] open pass ' + pass + ' failed:', e.message);
+      }
+    }
+
+    if (!opened) throw new Error('[Db] could not open database after all attempts');
 
     _conn = await _db.connect();
     await _createSchema();
