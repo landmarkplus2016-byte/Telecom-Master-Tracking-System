@@ -41,6 +41,10 @@ var Filters = (function () {
   var _debounce    = null;   // search input debounce timer
   var _queryGen    = 0;      // monotonic counter — stale async results are discarded
   var _totals      = { new_total: 0, lmp: 0, contractor: 0 };
+  // Set to true only after grid.js confirms DuckDB has been populated.
+  // Until then _applyFilters() is a no-op — prevents the empty-DuckDB
+  // race from wiping the grid (AG Grid fires onFilterChanged on init).
+  var _dbReady     = false;
 
   // ══════════════════════════════════════════════════════════
   // PUBLIC: init
@@ -71,11 +75,13 @@ var Filters = (function () {
 
   // ══════════════════════════════════════════════════════════
   // PUBLIC: onDataChanged
-  // Called by grid.js after DuckDB loadAllRows() completes.
-  // Re-runs any active filters against the freshly loaded data.
+  // Called by grid.js after DuckDB loadAllRows() completes successfully.
+  // This is the ONLY path that sets _dbReady = true.  Calling it confirms
+  // that DuckDB has real data, so subsequent _applyFilters() calls are safe.
   // ══════════════════════════════════════════════════════════
 
   function onDataChanged() {
+    _dbReady = true;
     _applyFilters();
     _refreshPanel();
   }
@@ -87,9 +93,14 @@ var Filters = (function () {
   // ══════════════════════════════════════════════════════════
 
   function _applyFilters() {
-    var gen = ++_queryGen;   // stamp this request so stale callbacks self-discard
+    var gen = ++_queryGen;
 
     if (typeof Db === 'undefined' || typeof Grid === 'undefined') return;
+
+    // Guard: don't query DuckDB until it has been populated (loadAllRows succeeded).
+    // AG Grid fires onFilterChanged during initialisation (before any data loads),
+    // which would otherwise call applyFilteredData([]) and wipe the grid.
+    if (!_dbReady) return;
 
     var params     = [];
     var conditions = [];

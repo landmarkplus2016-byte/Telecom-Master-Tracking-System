@@ -272,6 +272,16 @@ var Grid = (function () {
         },
       },
 
+      // Stable row identity — lets applyTransaction(update) find rows even after
+      // setGridOption('rowData') replaces the dataset.  Without this, AG Grid
+      // uses object reference equality, which breaks after any full data swap.
+      getRowId: function (params) {
+        return params.data._row_id
+          || (params.data._row_index ? 'row_' + params.data._row_index : null)
+          || params.data.id
+          || null;
+      },
+
       editType:                     '',
       stopEditingWhenCellsLoseFocus: true,
       singleClickEdit:              false,
