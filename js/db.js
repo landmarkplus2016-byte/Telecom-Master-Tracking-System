@@ -397,7 +397,22 @@ var Db = (function () {
     var v = row[col.name];
 
     if (col.type === 'TS') {
-      return (v && v !== '') ? _sqlStr(String(v)) : 'CURRENT_TIMESTAMP';
+      if (!v || v === '') return 'CURRENT_TIMESTAMP';
+      var n = Number(v);
+      // Apps Script returns last_modified as Unix milliseconds.
+      // DuckDB TIMESTAMP requires 'YYYY-MM-DD HH:MM:SS' — convert here.
+      if (!isNaN(n) && n > 1e10) {
+        var d   = new Date(n);
+        var iso = d.getUTCFullYear() + '-' +
+          String(d.getUTCMonth() + 1).padStart(2, '0') + '-' +
+          String(d.getUTCDate()).padStart(2, '0') + ' ' +
+          String(d.getUTCHours()).padStart(2, '0') + ':' +
+          String(d.getUTCMinutes()).padStart(2, '0') + ':' +
+          String(d.getUTCSeconds()).padStart(2, '0');
+        return _sqlStr(iso);
+      }
+      // Already a datetime string — pass through
+      return _sqlStr(String(v));
     }
 
     if (col.type === 'BOOLEAN') {
