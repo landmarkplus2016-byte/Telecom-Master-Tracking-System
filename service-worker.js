@@ -1,9 +1,13 @@
 // ============================================================
-// service-worker.js — Offline caching + update banner
+// service-worker.js — COOP/COEP header injection + offline caching + update banner
 // Telecom Coordinator Tracking App
 // ============================================================
 //
 // Responsibilities (this file only):
+//   - Inject Cross-Origin-Opener-Policy and Cross-Origin-Embedder-Policy
+//     headers on every response so DuckDB WASM SharedArrayBuffer works
+//   - Inject Cross-Origin-Resource-Policy: cross-origin on all responses
+//     so cross-origin CDN resources load correctly under COEP
 //   - Cache all app shell files on install for offline use
 //   - Serve from cache (cache-first); fall back to network
 //   - On new version deploy: stay in "waiting" state until
@@ -27,7 +31,7 @@
 // Bump CACHE_VERSION to force a full cache refresh on deploy.
 // Old cache names are deleted in the activate handler.
 
-var CACHE_VERSION = 'v33';
+var CACHE_VERSION = 'v35';
 var CACHE_NAME    = 'telecom-tracker-' + CACHE_VERSION;
 
 // ── App shell — files to pre-cache on install ─────────────
@@ -51,6 +55,7 @@ var APP_SHELL = [
   './js/sheets.js',
 
   // JS — business logic
+  './js/db.js',
   './js/offline.js',
   './js/id.js',
   './js/pricing.js',
@@ -77,9 +82,14 @@ var APP_SHELL = [
   // Logo
   './LMP%20Big%20Logo-Photoroom.png',
 
-  // CDN — Handsontable Community Edition
-  'https://cdn.jsdelivr.net/npm/handsontable@14.3.0/dist/handsontable.full.min.css',
-  'https://cdn.jsdelivr.net/npm/handsontable@14.3.0/dist/handsontable.full.min.js',
+  // CDN — AG Grid Community Edition (replaces Handsontable)
+  // Pin: bump here + in index.html if upgrading
+  'https://cdn.jsdelivr.net/npm/ag-grid-community@33.0.0/styles/ag-grid.css',
+  'https://cdn.jsdelivr.net/npm/ag-grid-community@33.0.0/styles/ag-theme-alpine.css',
+  'https://cdn.jsdelivr.net/npm/ag-grid-community@33.0.0/dist/ag-grid-community.min.js',
+
+  // CDN — DuckDB WASM (browser bundle with bundle selector)
+  'https://cdn.jsdelivr.net/npm/@duckdb/duckdb-wasm@1.29.0/dist/duckdb-browser.js',
 
   // CDN — xlsx-js-style (Excel export + restore tool)
   'https://cdn.jsdelivr.net/npm/xlsx-js-style@1.2.0/dist/xlsx.bundle.js',
@@ -99,6 +109,37 @@ var NETWORK_ONLY_HOSTS = [
 function _isNetworkOnly(url) {
   return NETWORK_ONLY_HOSTS.some(function (host) {
     return url.indexOf(host) !== -1;
+  });
+}
+
+// ── COOP / COEP / CORP header injection ───────────────────
+// DuckDB WASM requires SharedArrayBuffer, which the browser only
+// allows when the page is cross-origin isolated.  Cross-origin
+// isolation is activated by these two headers on the HTML document:
+//
+//   Cross-Origin-Opener-Policy: same-origin
+//   Cross-Origin-Embedder-Policy: require-corp
+//
+// We also stamp Cross-Origin-Resource-Policy: cross-origin on every
+// response so that CDN resources (DuckDB WASM bundles, Handsontable,
+// etc.) load correctly when COEP is active — without this, the browser
+// blocks cross-origin resources that lack a CORP header of their own.
+//
+// Opaque responses (cross-origin, no CORS) cannot have headers added;
+// we leave them untouched and let the browser enforce COEP as it sees fit.
+
+function _addCOIHeaders(response) {
+  if (!response || response.type === 'opaque') return response;
+
+  var headers = new Headers(response.headers);
+  headers.set('Cross-Origin-Opener-Policy',   'same-origin');
+  headers.set('Cross-Origin-Embedder-Policy', 'require-corp');
+  headers.set('Cross-Origin-Resource-Policy', 'cross-origin');
+
+  return new Response(response.body, {
+    status:     response.status,
+    statusText: response.statusText,
+    headers:    headers,
   });
 }
 
@@ -171,8 +212,9 @@ self.addEventListener('fetch', function (e) {
   e.respondWith(
     caches.match(e.request).then(function (cached) {
       if (cached) {
-        // Serve from cache — return immediately, no network wait
-        return cached;
+        // Serve from cache — inject COI headers so DuckDB WASM works
+        // even when served from the cache on subsequent visits.
+        return _addCOIHeaders(cached);
       }
 
       // Cache miss — try network
@@ -181,17 +223,23 @@ self.addEventListener('fetch', function (e) {
         // schemes are not supported by the Cache API and will throw.
         if (response && response.status === 200 &&
             (url.startsWith('http://') || url.startsWith('https://'))) {
+          // Store the original (unmodified) response in cache so the
+          // cache entry stays intact; we add COI headers on the fly
+          // at serve time via _addCOIHeaders above.
           var clone = response.clone();
           caches.open(CACHE_NAME).then(function (cache) {
             cache.put(e.request, clone).catch(function () { /* skip uncacheable */ });
           });
         }
-        return response;
+        // Return the network response with COI headers injected
+        return _addCOIHeaders(response);
       }).catch(function () {
         // Offline + not cached: for page navigations return the
         // cached index.html so the app shell still loads.
         if (e.request.mode === 'navigate') {
-          return caches.match('./index.html');
+          return caches.match('./index.html').then(function (fallback) {
+            return _addCOIHeaders(fallback);
+          });
         }
         // For other resource types (scripts, images) — just fail.
         // The app will handle missing resources gracefully.

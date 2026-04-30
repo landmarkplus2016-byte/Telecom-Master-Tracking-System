@@ -1,366 +1,311 @@
 /* ============================================================
-   grid.css — Handsontable overrides
+   grid.css — AG Grid Community overrides
    Telecom Coordinator Tracking App
+   ============================================================
+   Targets the ag-theme-alpine class applied by Grid.init()
+   to #grid-container. All values reference CSS variables from
+   index.html :root so themes (dark, blue, green, purple) work
+   automatically without any extra overrides here.
    ============================================================ */
 
-/* ── Row number + corner headers — navy matching col headers */
-/* grid.js also targets .rowHeader; grid.css wins via higher   */
-/* specificity on .ht_clone_left th for the left clone.        */
+/* ── Core theme variables ────────────────────────────────── */
 
-.ht_clone_left th,
-.ht_clone_top_left_corner th {
-  background-color: var(--bg-navy) !important;
-  color: var(--text-on-navy) !important;
-  border-color: var(--border-navy) !important;
-  font-family: var(--font-mono);
-  font-size: 10px;
+.ag-theme-alpine {
+  /* Backgrounds */
+  --ag-background-color:              var(--bg-surface);
+  --ag-foreground-color:              var(--text-primary);
+  --ag-odd-row-background-color:      var(--bg-base);
+
+  /* Header — navy panel */
+  --ag-header-background-color:       var(--bg-navy);
+  --ag-header-foreground-color:       var(--text-on-navy);
+  --ag-header-column-separator-color: var(--border-navy);
+  --ag-header-column-resize-handle-color: var(--accent);
+  --ag-header-column-resize-handle-width: 2px;
+  --ag-header-column-resize-handle-height: 60%;
+
+  /* Borders */
+  --ag-border-color:                  var(--border);
+  --ag-row-border-color:              var(--border);
+  --ag-secondary-border-color:        var(--border);
+
+  /* Row interaction */
+  --ag-row-hover-color:               var(--accent-dim);
+  --ag-selected-row-background-color: rgba(201, 151, 58, 0.12);
+
+  /* Range selection */
+  --ag-range-selection-border-color:  rgba(201, 151, 58, 0.75);
+  --ag-range-selection-background-color: rgba(201, 151, 58, 0.08);
+
+  /* Cell focus outline */
+  --ag-input-border-color:            var(--border);
+  --ag-input-focus-border-color:      var(--accent);
+  --ag-checkbox-checked-color:        var(--accent);
+
+  /* Typography */
+  --ag-font-family:                   var(--font-body);
+  --ag-font-size:                     13px;
+  --ag-cell-horizontal-padding:       8px;
+
+  /* Overlay / modal */
+  --ag-modal-overlay-background-color: rgba(26, 46, 74, 0.25);
+}
+
+/* ── Header ──────────────────────────────────────────────── */
+
+/* Gold bottom border — separates navy header from data area */
+.ag-theme-alpine .ag-header {
+  border-bottom: 2px solid rgba(201, 151, 58, 0.55);
+}
+
+/* Column header text — uppercase display font */
+.ag-theme-alpine .ag-header-cell-label {
+  font-family:    var(--font-display);
+  font-weight:    600;
+  font-size:      11px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color:          var(--text-on-navy);
+}
+
+/* Header filter icon — mute so it doesn't clash with navy */
+.ag-theme-alpine .ag-header-cell .ag-header-icon {
+  color: var(--text-muted-navy);
+}
+.ag-theme-alpine .ag-header-cell .ag-header-icon:hover {
+  color: var(--text-on-navy);
+}
+
+/* Sort arrows — gold accent */
+.ag-theme-alpine .ag-sort-ascending-icon,
+.ag-theme-alpine .ag-sort-descending-icon,
+.ag-theme-alpine .ag-sort-mixed-icon {
+  color: var(--accent);
+}
+
+/* ── Data cells ──────────────────────────────────────────── */
+
+.ag-theme-alpine .ag-cell {
+  font-family:   var(--font-body);
+  font-size:     13px;
+  color:         var(--text-primary);
+  line-height:   24px;
+  white-space:   nowrap;
+  overflow:      hidden;
+  text-overflow: ellipsis;
+  border-right:  1px solid var(--border);
+}
+
+/* Read-only column — subtle tint so non-editable cells are clear */
+.ag-theme-alpine .ag-cell.cell-readonly {
+  background: #edf1f8;
+  color:      var(--text-secondary);
+}
+
+/* Row number / row header area */
+.ag-theme-alpine .ag-row-number {
+  font-family:    var(--font-mono);
+  font-size:      10px;
   letter-spacing: 0.05em;
+  color:          var(--text-muted-navy);
+  background:     var(--bg-navy);
 }
 
-/* Selected row header highlight */
-.ht_clone_left th.ht__highlight,
-.ht_clone_left th.ht__active_highlight {
-  background-color: rgba(255,255,255,0.14) !important;
-  color: #ffffff !important;
-}
+/* ── JC conflict cell — red outline + tint ───────────────── */
 
-/* Remove the inner span box that HOT wraps the row number in */
-.ht_clone_left th .relative {
-  background: transparent !important;
-}
-
-/* ── Column header — gold accent bottom border ───────────── */
-/* Thin gold line separates the navy header row from the      */
-/* white data area — sharp, finished look.                    */
-/* More specific than grid.js's .handsontable th rule so it   */
-/* wins on border-bottom even though grid.js injects later.   */
-.handsontable thead th {
-  border-bottom: 2px solid rgba(201, 151, 58, 0.55) !important;
-}
-
-/* The frozen corner cell sits above row headers — keep it    */
-/* consistent with the column header gold line.               */
-.ht_clone_top_left_corner thead th {
-  border-bottom: 2px solid rgba(201, 151, 58, 0.55) !important;
-}
-
-/* ── Row hover highlight ────────────────────────────────── */
-/* Subtle accent tint on the hovered row. Excluded from      */
-/* locked rows (already grey) and changed rows (amber tint). */
-/* Two rules needed: odd rows (lower specificity is enough)  */
-/* and even rows (must match zebra's full :not() chain so    */
-/* the added :hover pseudo-class wins by one specificity pt) */
-
-.handsontable .htCore tbody tr:hover td:not(.row-locked):not(.row-changed) {
-  background-color: var(--hover-row, var(--accent-dim)) !important;
-}
-
-/* Even rows — matches zebra selector exactly + :hover so it */
-/* beats the zebra rule by one specificity point.            */
-.handsontable .htCore tbody tr:nth-child(even):hover td:not(.row-locked):not(.row-changed):not(.cell-jc-error):not(.cell-readonly) {
-  background-color: var(--hover-row, var(--accent-dim)) !important;
-}
-
-/* Row number header — matching highlight on the left clone  */
-.ht_clone_left tbody tr:hover th {
-  background-color: rgba(255, 255, 255, 0.22) !important;
-}
-
-/* ── Zebra striping — even data rows ────────────────────── */
-/* Alternating cool tint makes wide rows far easier to scan.  */
-/* :not() exclusions ensure semantic state classes (locked,   */
-/* error, changed, readonly) always override the stripe.      */
-.handsontable .htCore tbody tr:nth-child(even) td:not(.row-locked):not(.cell-jc-error):not(.row-changed):not(.cell-readonly) {
-  background-color: var(--bg-zebra, #f0f5fc) !important;
-}
-
-/* Even rows, read-only variant — slightly deeper tint keeps  */
-/* the readonly cue visible against the zebra background.     */
-.handsontable .htCore tbody tr:nth-child(even) td.cell-readonly {
-  background-color: var(--bg-zebra-readonly, #e8eef8) !important;
-}
-
-/* ── Selected area cells ────────────────────────────────── */
-/* HOT default selection is blue; tone to gold-tinted navy.  */
-
-.handsontable td.area {
-  background: rgba(201, 151, 58, 0.10) !important;
-}
-
-.handsontable td.current.highlight {
-  background: rgba(201, 151, 58, 0.18) !important;
-}
-
-/* Active cell border — thin gold outline */
-.handsontable td.current {
-  outline: 2px solid rgba(201, 151, 58, 0.8) !important;
+.ag-theme-alpine .ag-cell.cell-jc-error {
+  background:     rgba(192, 57, 43, 0.12) !important;
+  outline:        2px solid #c0392b !important;
   outline-offset: -2px;
 }
 
-/* ── Dark mode selection overrides ──────────────────────── */
-/* Default gold tint at 10% is invisible on #514d4d rows.   */
-/* Use a stronger tint + force light text so it stays legible.*/
-html[data-theme="dark"] .handsontable td.area {
-  background: rgba(201, 151, 58, 0.30) !important;
-  color: #e6edf3 !important;
+/* ── Locked rows (coordinator view) ──────────────────────── */
+
+.ag-theme-alpine .ag-row.row-locked .ag-cell {
+  background: #ebebef;
+  color:      #9898a8;
+  cursor:     default;
 }
 
-html[data-theme="dark"] .handsontable td.current.highlight {
-  background: rgba(201, 151, 58, 0.40) !important;
-  color: #e6edf3 !important;
+/* ── Changed rows — coordinator just saved (manager) ─────── */
+
+.ag-theme-alpine .ag-row.row-changed .ag-cell {
+  background:   rgba(201, 151, 58, 0.07);
+  border-left:  2px solid var(--accent);
 }
 
-html[data-theme="dark"] .handsontable td.current {
-  color: #e6edf3 !important;
+/* ── Focused / selected cell ─────────────────────────────── */
+
+.ag-theme-alpine .ag-cell.ag-cell-focus:not(.ag-cell-range-selected) {
+  border-color: rgba(201, 151, 58, 0.8) !important;
 }
 
-/* ── Locked rows (coordinator) — grey tint + muted text ─── */
-/* grid.js injects td.row-locked; CSS adds tr-level context.  */
-.handsontable .htCore tbody tr td.row-locked {
-  color: var(--text-secondary) !important;
-  cursor: default !important;
+/* ── Numeric columns — right-aligned ─────────────────────── */
+
+.ag-theme-alpine .ag-cell.ag-right-aligned-cell {
+  text-align: right;
+}
+.ag-theme-alpine .ag-header-cell.ag-right-aligned-header .ag-header-cell-label {
+  justify-content: flex-end;
 }
 
-/* ── Changed rows (delta sync, manager view) ───────────── */
-/* Subtle gold-amber tint signals a row updated from server. */
-.handsontable .htCore tbody tr td.row-changed {
-  background-color: rgba(201, 151, 58, 0.07) !important;
+/* ── Price indicator column — centred emoji/icon ─────────── */
+
+.ag-theme-alpine .ag-cell.col-price-indicator {
+  text-align:  center;
+  padding:     0;
+  font-size:   10px;
+  line-height: 24px;
+  background:  #edf1f8;       /* same as cell-readonly tint */
+  color:       var(--text-secondary);
 }
 
-/* ── HOT context menu ───────────────────────────────────── */
-/* Override HOT's default grey context menu to match the     */
-/* app's surface/border system.                              */
+/* ── Column resize handle ─────────────────────────────────── */
 
-.htContextMenu .ht_master table.htCore {
-  border: 1px solid var(--border) !important;
-  box-shadow: 0 8px 32px rgba(10, 20, 35, 0.16) !important;
+.ag-theme-alpine .ag-header-cell-resize::after {
+  background: var(--accent);
+  opacity:    0.6;
+  width:      2px;
+}
+.ag-theme-alpine .ag-header-cell-resize:hover::after {
+  opacity: 1;
 }
 
-.htContextMenu td {
-  font-family: var(--font-body) !important;
-  font-size: 12px !important;
-  color: var(--text-primary) !important;
-  padding: 6px 16px !important;
-  background: var(--bg-surface) !important;
-  border-color: var(--border) !important;
-  cursor: pointer !important;
-  white-space: nowrap !important;
+/* ── Select / dropdown cell editor ───────────────────────── */
+
+.ag-theme-alpine .ag-select-list {
+  background:  #ffffff;
+  border:      1px solid #b0b8c8;
+  box-shadow:  0 6px 20px rgba(10, 20, 35, 0.18);
 }
 
-.htContextMenu td:hover,
-.htContextMenu td.htCustomMenuRenderer:hover {
-  background: var(--bg-base) !important;
-  color: var(--text-primary) !important;
+.ag-theme-alpine .ag-select-list-item {
+  font-family: var(--font-body);
+  font-size:   13px;
+  color:       var(--text-primary);
+  padding:     6px 12px;
+  cursor:      pointer;
+  white-space: nowrap;
 }
 
-/* Separator line between menu groups */
-.htContextMenu td.htSeparator {
-  padding: 0 !important;
-  height: 1px !important;
-  background: var(--border) !important;
-  cursor: default !important;
+.ag-theme-alpine .ag-select-list-item:hover,
+.ag-theme-alpine .ag-select-list-item.ag-active-item {
+  background: var(--accent-dim);
 }
 
-/* Disabled menu item */
-.htContextMenu td.htDisabled {
-  color: var(--text-secondary) !important;
-  cursor: default !important;
-  opacity: 0.55;
+/* ── Text cell editor ────────────────────────────────────── */
+
+.ag-theme-alpine .ag-cell-edit-wrapper .ag-text-field-input {
+  font-family: var(--font-body);
+  font-size:   13px;
+  color:       var(--text-primary);
+  border:      1px solid var(--accent);
+  padding:     0 8px;
+  height:      100%;
+  background:  #fff;
+  outline:     none;
 }
 
-/* ── HOT grid scrollbar ─────────────────────────────────── */
-/* Excel-weight scrollbars — visible, functional, not giant.  */
+/* ── Scrollbars — Excel-weight visible scrollbars ─────────── */
 
-.handsontable .wtHolder::-webkit-scrollbar {
-  width: 13px;
+.ag-theme-alpine .ag-body-horizontal-scroll-viewport::-webkit-scrollbar,
+.ag-theme-alpine .ag-body-viewport::-webkit-scrollbar {
+  width:  13px;
   height: 13px;
 }
 
-.handsontable .wtHolder::-webkit-scrollbar-track {
-  background: #e8ecf0;
+.ag-theme-alpine .ag-body-horizontal-scroll-viewport::-webkit-scrollbar-track,
+.ag-theme-alpine .ag-body-viewport::-webkit-scrollbar-track {
+  background:  #e8ecf0;
   border-left: 1px solid var(--border);
 }
 
-.handsontable .wtHolder::-webkit-scrollbar-thumb {
-  background: #a0aab8;
-  border: 2px solid #e8ecf0;   /* inset gap, Excel-style */
+.ag-theme-alpine .ag-body-horizontal-scroll-viewport::-webkit-scrollbar-thumb,
+.ag-theme-alpine .ag-body-viewport::-webkit-scrollbar-thumb {
+  background:    #a0aab8;
+  border:        2px solid #e8ecf0;
   border-radius: 2px;
 }
 
-.handsontable .wtHolder::-webkit-scrollbar-thumb:hover {
+.ag-theme-alpine .ag-body-horizontal-scroll-viewport::-webkit-scrollbar-thumb:hover,
+.ag-theme-alpine .ag-body-viewport::-webkit-scrollbar-thumb:hover {
   background: #6a7a90;
 }
 
-.handsontable .wtHolder::-webkit-scrollbar-thumb:active {
+.ag-theme-alpine .ag-body-horizontal-scroll-viewport::-webkit-scrollbar-thumb:active,
+.ag-theme-alpine .ag-body-viewport::-webkit-scrollbar-thumb:active {
   background: var(--bg-navy);
 }
 
-.handsontable .wtHolder::-webkit-scrollbar-corner {
-  background: #e8ecf0;
-  border-top: 1px solid var(--border);
-  border-left: 1px solid var(--border);
+.ag-theme-alpine .ag-body-horizontal-scroll-viewport::-webkit-scrollbar-corner,
+.ag-theme-alpine .ag-body-viewport::-webkit-scrollbar-corner {
+  background:   #e8ecf0;
+  border-top:   1px solid var(--border);
+  border-left:  1px solid var(--border);
 }
 
-/* ── Autocomplete / dropdown cell editor ─────────────────── */
-/* HOT renders per-column dropdown lists in .handsontable.    */
-/* listbox — white bg + shadow so it's clearly legible.       */
+/* ══════════════════════════════════════════════════════════
+   THEME OVERRIDES — dark, blue, green, purple
+   Only override variables that genuinely differ from navy.
+   ══════════════════════════════════════════════════════════ */
 
-.handsontable.listbox {
-  background: #ffffff !important;
-  border: 1px solid #b0b8c8 !important;
-  box-shadow: 0 6px 20px rgba(10, 20, 35, 0.18) !important;
-  border-radius: 0 !important;
-  z-index: 9999 !important;
+/* ── Dark mode ───────────────────────────────────────────── */
+
+html[data-theme="dark"] .ag-theme-alpine {
+  --ag-background-color:              #161b22;
+  --ag-foreground-color:              #e6edf3;
+  --ag-border-color:                  #30363d;
+  --ag-row-border-color:              #30363d;
+  --ag-odd-row-background-color:      #0d1117;
+  --ag-header-background-color:       #21262d;
+  --ag-header-foreground-color:       #e6edf3;
+  --ag-header-column-separator-color: #444c56;
+  --ag-selected-row-background-color: rgba(201, 151, 58, 0.20);
+  --ag-row-hover-color:               rgba(201, 151, 58, 0.10);
 }
 
-/* Each list item */
-.handsontable.listbox .htCore td {
-  background: #ffffff !important;
-  color: #1a2e4a !important;             /* navy — high contrast */
-  font-family: var(--font-body) !important;
-  font-size: 13px !important;
-  font-weight: 500 !important;
-  padding: 9px 16px !important;
-  border-bottom: 1px solid #eaeef4 !important;
-  cursor: pointer !important;
-  white-space: nowrap !important;
-  min-width: 160px !important;
+html[data-theme="dark"] .ag-theme-alpine .ag-cell.cell-readonly {
+  background: #0f1520;
+  color:      #6e7681;
 }
 
-/* Hover — blue-grey tint like Excel */
-.handsontable.listbox .htCore tr:hover td,
-.handsontable.listbox .htCore td.htAutocomplete:hover {
-  background: #d8e8f8 !important;
-  color: #0f1e30 !important;
+html[data-theme="dark"] .ag-theme-alpine .ag-row.row-locked .ag-cell {
+  background: #0a0f16;
+  color:      #555e6a;
 }
 
-/* Selected / current item — navy fill, white text */
-.handsontable.listbox .htCore td.current,
-.handsontable.listbox .htCore tr.current td {
-  background: var(--bg-navy) !important;
-  color: #ffffff !important;
-  font-weight: 600 !important;
+html[data-theme="dark"] .ag-theme-alpine .ag-select-list {
+  background:  #21262d;
+  border-color: #444c56;
+  box-shadow:  0 6px 20px rgba(0, 0, 0, 0.4);
 }
 
-/* ── Column resize handle ────────────────────────────────── */
-/* HOT's default resize handle; gold accent on hover.         */
-
-.handsontable .manualColumnResizer {
-  background: transparent;
-  border-right: 2px solid var(--border-navy);
-  transition: border-color 0.15s;
+html[data-theme="dark"] .ag-theme-alpine .ag-select-list-item {
+  color: #e6edf3;
 }
 
-.handsontable .manualColumnResizer:hover,
-.handsontable .manualColumnResizer.active {
-  border-right-color: var(--accent);
+html[data-theme="dark"] .ag-theme-alpine .ag-select-list-item:hover,
+html[data-theme="dark"] .ag-theme-alpine .ag-select-list-item.ag-active-item {
+  background: #2d333b;
 }
 
-
-/* ════════════════════════════════════════════════════════════
-   DARK MODE GRID OVERRIDES
-   Applied only when html[data-theme="dark"] is set.
-   Overrides HOT's hardcoded white/light cell backgrounds.
-   ════════════════════════════════════════════════════════════ */
-
-/* ── Data cells ─────────────────────────────────────────── */
-
-html[data-theme="dark"] .handsontable .htCore tbody td {
-  background-color: #161b22 !important;
-  color: #e6edf3 !important;
-  border-color: #30363d !important;
+html[data-theme="dark"] .ag-theme-alpine .ag-cell.col-price-indicator {
+  background: #0f1520;
 }
 
-/* ── Read-only cells ─────────────────────────────────────── */
-
-html[data-theme="dark"] .handsontable .htCore tbody td.cell-readonly {
-  background-color: #0f1520 !important;
-  color: #6e7681 !important;
-}
-
-/* ── Locked rows ─────────────────────────────────────────── */
-
-html[data-theme="dark"] .handsontable .htCore tbody tr td.row-locked {
-  background-color: #0f1520 !important;
-  color: #555e6a !important;
-}
-
-/* ── Column header accent line — keep using accent var ───── */
-
-html[data-theme="dark"] .handsontable thead th {
-  border-bottom-color: rgba(201, 151, 58, 0.45) !important;
-}
-
-/* ── Context menu ────────────────────────────────────────── */
-
-html[data-theme="dark"] .htContextMenu .ht_master table.htCore {
-  border-color: #444c56 !important;
-  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5) !important;
-}
-
-html[data-theme="dark"] .htContextMenu td {
-  background: #21262d !important;
-  color: #e6edf3 !important;
-  border-color: #30363d !important;
-}
-
-html[data-theme="dark"] .htContextMenu td:hover,
-html[data-theme="dark"] .htContextMenu td.htCustomMenuRenderer:hover {
-  background: #30363d !important;
-  color: #e6edf3 !important;
-}
-
-html[data-theme="dark"] .htContextMenu td.htSeparator {
-  background: #444c56 !important;
-}
-
-html[data-theme="dark"] .htContextMenu td.htDisabled {
-  color: #555e6a !important;
-}
-
-/* ── Autocomplete / dropdown listbox ─────────────────────── */
-
-html[data-theme="dark"] .handsontable.listbox {
-  background: #21262d !important;
-  border-color: #444c56 !important;
-  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.4) !important;
-}
-
-html[data-theme="dark"] .handsontable.listbox .htCore td {
-  background: #21262d !important;
-  color: #e6edf3 !important;
-  border-bottom-color: #30363d !important;
-}
-
-html[data-theme="dark"] .handsontable.listbox .htCore tr:hover td,
-html[data-theme="dark"] .handsontable.listbox .htCore td.htAutocomplete:hover {
-  background: #2d333b !important;
-  color: #e6edf3 !important;
-}
-
-html[data-theme="dark"] .handsontable.listbox .htCore td.current,
-html[data-theme="dark"] .handsontable.listbox .htCore tr.current td {
-  background: #444c56 !important;
-  color: #ffffff !important;
-}
-
-/* ── Scrollbars ──────────────────────────────────────────── */
-
-html[data-theme="dark"] .handsontable .wtHolder::-webkit-scrollbar-track {
-  background: #161b22;
-  border-left-color: #30363d;
-}
-
-html[data-theme="dark"] .handsontable .wtHolder::-webkit-scrollbar-thumb {
-  background: #444c56;
-  border-color: #161b22;
-}
-
-html[data-theme="dark"] .handsontable .wtHolder::-webkit-scrollbar-thumb:hover {
-  background: #6e7681;
-}
-
-html[data-theme="dark"] .handsontable .wtHolder::-webkit-scrollbar-corner {
-  background: #161b22;
+html[data-theme="dark"] .ag-theme-alpine .ag-body-horizontal-scroll-viewport::-webkit-scrollbar-track,
+html[data-theme="dark"] .ag-theme-alpine .ag-body-viewport::-webkit-scrollbar-track {
+  background:  #161b22;
   border-color: #30363d;
+}
+
+html[data-theme="dark"] .ag-theme-alpine .ag-body-horizontal-scroll-viewport::-webkit-scrollbar-thumb,
+html[data-theme="dark"] .ag-theme-alpine .ag-body-viewport::-webkit-scrollbar-thumb {
+  background:    #444c56;
+  border-color:  #161b22;
+}
+
+html[data-theme="dark"] .ag-theme-alpine .ag-body-horizontal-scroll-viewport::-webkit-scrollbar-thumb:hover,
+html[data-theme="dark"] .ag-theme-alpine .ag-body-viewport::-webkit-scrollbar-thumb:hover {
+  background: #6e7681;
 }

@@ -9,8 +9,9 @@
 A PWA (Progressive Web App) replacing a telecom coordinator Excel tracking sheet.
 - Hosted on GitHub Pages (public repo — NO sensitive data ever in code)
 - Google Sheets as backend database, accessed ONLY through Google Apps Script
-- Handsontable Community Edition for the Excel-like grid
-- Offline-first via IndexedDB, local backup via File System Access API
+- AG Grid Community Edition for the Excel-like grid
+- Offline-first via DuckDB WASM + OPFS (replaces IndexedDB), local backup via File System Access API
+- Service worker injects COOP/COEP headers required by DuckDB SharedArrayBuffer build
 
 ---
 
@@ -19,7 +20,7 @@ A PWA (Progressive Web App) replacing a telecom coordinator Excel tracking sheet
 1. **No sensitive data in code** — Apps Script URL lives in localStorage only, Sheet URL never leaves the manager
 2. **Never call Google Sheets directly** — ALL reads/writes go through `js/sheets.js` → Apps Script only
 3. **One file, one job** — never add logic to a file that belongs in another file
-4. **Column definitions live in `js/grid.js` only** — display label and internal key are always separate
+4. **Column definitions live in `js/grid.js` only** — display label and internal key are always separate (AG Grid column defs)
 5. **Coordinators never see invoicing columns** — enforced server-side in Apps Script, not just frontend
 6. **Row locks are permanent** — once Acceptance Status is filled, coordinators cannot edit that row, no exceptions
 7. **Delta sync only** — never fetch all rows after first load; always sync by `last_modified` timestamp
@@ -88,11 +89,11 @@ tracking-app/
 ├── CLAUDE.md               ← you are here
 ├── index.html              # App shell only — loads all JS/CSS
 ├── manifest.json           # PWA manifest
-├── service-worker.js       # Offline caching + update banner only
+├── service-worker.js       # COOP/COEP header injection + offline caching + update banner
 │
 ├── css/
 │   ├── main.css            # Global styles & CSS variables only
-│   ├── grid.css            # Handsontable overrides only
+│   ├── grid.css            # AG Grid overrides only
 │   ├── forms.css           # Login & setup forms only
 │   └── filters.css         # Filter panel only
 │
@@ -101,12 +102,12 @@ tracking-app/
 │   ├── auth.js             # Login, role detection, access code check
 │   ├── config.js           # First-launch Apps Script URL setup screen
 │   ├── sheets.js           # ALL Apps Script calls — nothing else calls Apps Script
-│   ├── grid.js             # Handsontable init + ALL column definitions
+│   ├── grid.js             # AG Grid init + ALL column definitions
+│   ├── db.js               # DuckDB WASM init, schema, all data operations (replaces offline.js)
 │   ├── id.js               # ID# auto-generation only
-│   ├── pricing.js          # Price version lookup + Task Date logic only
-│   ├── offline.js          # IndexedDB + sync queue only
+│   ├── pricing.js          # Price version lookup + Task Date logic only (queries via db.js)
 │   ├── backup.js           # File System Access API + scheduled backup only
-│   ├── filters.js          # Column filter logic only
+│   ├── filters.js          # Column filter logic + global search via SQL only
 │   ├── delete.js           # Soft delete + warning modal only
 │   ├── export.js           # Excel export only
 │   └── reconcile.js        # TSR reconciliation workflow only
@@ -148,7 +149,7 @@ function generateID(jobCode, rowIndex) {
 
 ### JC Uniqueness Validation (`js/grid.js`)
 - Fires on blur when user leaves the JC field
-- Scans IndexedDB: if same JC exists on a different Logical Site ID → error
+- Queries DuckDB: if same JC exists on a different Logical Site ID → error
 - Field cleared + highlighted red + inline message: *"Job Code [JC] is already assigned to site [Logical Site ID]."*
 - Also enforced server-side in Apps Script on save
 - Applies to all roles
@@ -188,8 +189,8 @@ function generateID(jobCode, rowIndex) {
 - Never manually entered
 - In-House contractor = 100% LMP, 0% Contractor always
 
-### Delta Sync (`js/offline.js` + `js/sheets.js`)
-- First load: fetch all rows once → store in IndexedDB
+### Delta Sync (`js/db.js` + `js/sheets.js`)
+- First load: fetch all rows once → store in DuckDB via OPFS
 - Every subsequent sync: fetch only rows where `last_modified` > last sync timestamp
 - Bulk writes (e.g. TSR reconciliation): batch in groups of 50, show progress indicator
 - Never fetch full dataset again after first load
@@ -214,7 +215,7 @@ function generateID(jobCode, rowIndex) {
 - Live filtering as you type — no Enter key needed
 - Works simultaneously with column filters — both apply at the same time
 - Role-scoped: coordinator searches own rows + coordinator columns only; invoicing/manager search all rows + all visible columns
-- Runs against local IndexedDB — instant, no Apps Script call
+- Runs against local DuckDB — instant SQL query, no Apps Script call
 
 ### Backup (`js/backup.js`)
 - Per-save: silent write to `backup_latest.json` after every save
@@ -242,7 +243,7 @@ This feature exists to support the test → go-live transition. The manager can 
 **What it does:**
 - Deletes all rows from the `Data` tab in Google Sheets
 - Deletes all rows from the `Deleted` tab
-- Clears the local IndexedDB completely
+- Clears the local DuckDB database completely (OPFS store wiped)
 - Clears all local backup files in the chosen backup folder
 
 **What it does NOT touch:**
@@ -254,7 +255,7 @@ This feature exists to support the test → go-live transition. The manager can 
 - Hidden in a "Danger Zone" section of a Manager-only panel — not visible in the main toolbar
 - Requires typing `DELETE ALL DATA` to confirm — not just a single click
 - Warning shown: *"This will permanently delete all tracking records. This cannot be undone. Type DELETE ALL DATA to confirm."*
-- After completion: app reloads fresh, IndexedDB rebuilt from the now-empty Sheet
+- After completion: app reloads fresh, DuckDB rebuilt from the now-empty Sheet
 - Implemented in `appscript/Code.gs` as a dedicated `clearAllData()` function — called from `js/sheets.js` → `js/delete.js`
 
 ---
@@ -271,40 +272,24 @@ This feature exists to support the test → go-live transition. The manager can 
 
 ---
 
-## Build Stages — Follow This Order
+## Build Stages — Follow BUILD_GUIDE_V2.md
 
-### Stage 1 — Foundation (build this first, get it working end-to-end)
-`appscript/Code.gs` → `index.html` → `js/auth.js` → `js/config.js` → `js/sheets.js` → `js/grid.js` (columns + basic display)
-
-**Goal:** Log in as any role, see correct columns, data round-trips to/from Google Sheets. Nothing else.
-
----
-
-### Stage 2 — Core Business Rules
-`js/id.js` → `js/pricing.js` → row locking logic in `js/grid.js` → JC uniqueness validation
-
-**Goal:** ID# generates correctly, price versioning resolves, JC uniqueness fires on blur, locked rows are read-only for coordinators.
+> ⚠️ The original 5-stage build plan has been replaced by a full architecture rebuild.
+> **Do not follow the stage plan below.** Read `BUILD_GUIDE_V2.md` for the current 8-session build plan.
+>
+> Stack change: Handsontable → AG Grid Community, IndexedDB → DuckDB WASM + OPFS.
+> All business rules, column definitions, and role logic in this file remain authoritative and unchanged.
+> Only the technology layer has changed.
 
 ---
 
-### Stage 3 — Offline & Sync
-`js/offline.js` → delta sync in `js/sheets.js` → presence heartbeat → conflict handling
+### Original Stage Reference (superseded — for context only)
 
-**Goal:** App works offline, syncs on reconnect, manager sees who is online, conflict copies are created and resolvable.
-
----
-
-### Stage 4 — Invoicing Features
-`js/reconcile.js` → `js/export.js` → `js/delete.js` → `js/filters.js`
-
-**Goal:** TSR reconciliation works end-to-end, exports produce correct Excel files, soft delete works, column filters and global search work.
-
----
-
-### Stage 5 — Polish & Safety Net
-`js/backup.js` → `tools/restore.html` → all CSS polish → `manifest.json` + `service-worker.js` → Clear All Data feature → `docs/`
-
-**Goal:** Backup runs silently, restore tool works standalone in any browser, UI is professional and consistent, PWA installs correctly, manager can wipe all data cleanly for the test → go-live transition.
+**Stage 1** — Foundation: Apps Script, auth, grid display
+**Stage 2** — Core Business Rules: ID#, pricing, locking, JC uniqueness
+**Stage 3** — Offline & Sync: storage, delta sync, presence, conflicts
+**Stage 4** — Invoicing Features: reconciliation, export, delete, filters
+**Stage 5** — Polish & Safety Net: backup, restore, PWA, Clear All Data
 
 ---
 
@@ -365,5 +350,6 @@ Role-based visual indicators to implement consistently:
 
 ---
 
-*Read `docs/structure.md` for the full file map before starting any session.*
+*Read `BUILD_GUIDE_V2.md` for the current session-by-session build plan.*
+*This file (CLAUDE.md) is the authority on all business rules, column definitions, and role logic.*
 *Full planning details in the project handoff document.*

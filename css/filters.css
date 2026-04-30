@@ -1,96 +1,99 @@
 /* ============================================================
-   filters.css — Filter panel and global search bar
+   filters.css — Filter panel + search bar base styles
    Telecom Coordinator Tracking App
    ============================================================
-   Component styles are also injected by js/filters.js
-   (id="filters-styles") — those rules come later in the
-   cascade and will override any conflicts here.
-   This file:
-     • Reserves the #filter-panel layout slot for flexbox
-     • Provides reliable base styles before JS fires
-     • Mirrors the injected styles as a readable design spec
+   Provides layout slots and reliable base styles before
+   filters.js fires.  js/filters.js (id="filters-styles") injects
+   the full component styles after init; those rules come later
+   in the cascade and will override any conflicts here.
+
+   HOT (.handsontable/.htDropdown*) styles have been removed —
+   AG Grid column filter UI is styled in the injected block.
    ============================================================ */
 
 
 /* ── Filter panel — always-visible ribbon ────────────────── */
 /* Sits between #app-header and #grid-container in app-body. */
-/* Always rendered; content (idle or active) set by filters.js */
 
 #filter-panel {
   flex-shrink: 0;
-  overflow: visible;        /* allows theme dropdown to open outside the ribbon */
-  position: relative;       /* anchor for the absolutely-positioned dropdown panel */
-  height: 34px;
+  overflow:    visible;   /* theme dropdown opens outside the ribbon */
+  position:    relative;  /* anchor for absolutely-positioned child panels */
+  height:      34px;
   border-bottom: 2px solid var(--border);
-  background: var(--bg-surface);
-  display: flex;
+  background:  var(--bg-surface);
+  display:     flex;
   align-items: center;
 }
 
 .fp-inner {
-  display: flex;
+  display:     flex;
   align-items: center;
-  gap: 10px;
-  padding: 0 16px;
-  width: 100%;
-  height: 100%;
-  overflow: hidden;         /* clip long filter badges — theme anchor sits outside */
+  gap:         10px;
+  padding:     0 16px;
+  width:       100%;
+  height:      100%;
+  overflow:    hidden;   /* clip long filter badges; theme anchor sits outside */
 }
 
-/* Orange dot — active filter present */
-.fp-active-dot {
-  font-size: 8px;
-  color: var(--accent);
-  line-height: 1;
-  flex-shrink: 0;
-}
-
-.fp-label {
-  font-family: var(--font-display);
-  font-weight: 600;
-  font-size: 10px;
-  letter-spacing: 0.14em;
-  text-transform: uppercase;
-  color: var(--text-secondary);
-  white-space: nowrap;
-  flex-shrink: 0;
-}
 
 /* ── Idle state (no active filters) ─────────────────────── */
 
 .fp-idle-dot {
-  font-size: 7px;
-  color: var(--border);
+  font-size:   7px;
+  color:       var(--border);
   line-height: 1;
   flex-shrink: 0;
 }
 
 .fp-idle-text {
   font-family: var(--font-body);
-  font-size: 11px;
-  font-style: italic;
-  color: var(--text-secondary);
-  opacity: 0.6;
+  font-size:   11px;
+  font-style:  italic;
+  color:       var(--text-secondary);
+  opacity:     0.6;
 }
+
+
+/* ── Active state — label + dot ─────────────────────────── */
+
+.fp-active-dot {
+  font-size:   8px;
+  color:       var(--accent);
+  line-height: 1;
+  flex-shrink: 0;
+}
+
+.fp-label {
+  font-family:    var(--font-display);
+  font-weight:    600;
+  font-size:      10px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color:          var(--text-secondary);
+  white-space:    nowrap;
+  flex-shrink:    0;
+}
+
 
 /* ── Filter badges ───────────────────────────────────────── */
 
 .fp-badges {
-  display: flex;
+  display:     flex;
   align-items: center;
-  gap: 6px;
-  flex: 1;
-  overflow: hidden;
+  gap:         6px;
+  flex:        1;
+  overflow:    hidden;
 }
 
 .fp-badge {
-  display: inline-flex;
+  display:     inline-flex;
   align-items: center;
-  gap: 4px;
-  height: 22px;
-  padding: 0 6px 0 8px;
-  border: 1px solid var(--border);
-  background: var(--bg-base);
+  gap:         4px;
+  height:      22px;
+  padding:     0 6px 0 8px;
+  border:      1px solid var(--border);
+  background:  var(--bg-base);
   white-space: nowrap;
   flex-shrink: 0;
 }
@@ -98,39 +101,39 @@
 /* Search badge — gold tint */
 .fp-badge--search {
   border-color: rgba(201, 151, 58, 0.4);
-  background: rgba(201, 151, 58, 0.06);
+  background:   rgba(201, 151, 58, 0.06);
 }
 
 /* Column filter badge — blue tint */
 .fp-badge--col {
   border-color: rgba(46, 140, 200, 0.4);
-  background: rgba(46, 140, 200, 0.06);
+  background:   rgba(46, 140, 200, 0.06);
 }
 
 .fp-badge-label {
-  font-family: var(--font-mono);
-  font-size: 9px;
+  font-family:    var(--font-mono);
+  font-size:      9px;
   letter-spacing: 0.1em;
   text-transform: uppercase;
-  color: var(--text-secondary);
+  color:          var(--text-secondary);
 }
 
 .fp-badge-value {
   font-family: var(--font-body);
-  font-size: 11px;
-  color: var(--text-primary);
-  font-style: italic;
+  font-size:   11px;
+  color:       var(--text-primary);
+  font-style:  italic;
 }
 
 .fp-badge-remove {
-  background: transparent;
-  border: none;
-  color: var(--text-secondary);
-  font-size: 14px;
+  background:  transparent;
+  border:      none;
+  color:       var(--text-secondary);
+  font-size:   14px;
   line-height: 1;
-  cursor: pointer;
-  padding: 0 1px;
-  transition: color 0.12s;
+  cursor:      pointer;
+  padding:     0 1px;
+  transition:  color 0.12s;
   margin-left: 2px;
 }
 
@@ -138,108 +141,103 @@
   color: var(--color-error);
 }
 
+
 /* ── Clear All button ────────────────────────────────────── */
 
 .fp-clear-all {
-  margin-left: auto;
-  height: 24px;
-  padding: 0 12px;
-  background: transparent;
-  border: 1px solid var(--border);
-  font-family: var(--font-display);
-  font-weight: 600;
-  font-size: 9px;
+  margin-left:    auto;
+  height:         24px;
+  padding:        0 12px;
+  background:     transparent;
+  border:         1px solid var(--border);
+  font-family:    var(--font-display);
+  font-weight:    600;
+  font-size:      9px;
   letter-spacing: 0.14em;
   text-transform: uppercase;
-  color: var(--text-secondary);
-  cursor: pointer;
-  white-space: nowrap;
-  flex-shrink: 0;
-  transition: background 0.12s, color 0.12s, border-color 0.12s;
+  color:          var(--text-secondary);
+  cursor:         pointer;
+  white-space:    nowrap;
+  flex-shrink:    0;
+  transition:     background 0.12s, color 0.12s, border-color 0.12s;
 }
 
 .fp-clear-all:hover {
-  background: var(--bg-base);
-  color: var(--color-error);
+  background:   var(--bg-base);
+  color:        var(--color-error);
   border-color: rgba(192, 57, 43, 0.4);
 }
 
+
 /* ── Global search bar ───────────────────────────────────── */
-/* Sits inside #global-search-wrap in the header toolbar.    */
+/* Sits inside #global-search-wrap in the app header.        */
 
 #global-search-wrap {
-  flex: 1;
+  flex:      1;
   min-width: 0;
   max-width: 340px;
-  margin: 0 12px;
+  margin:    0 12px;
 }
 
 .gs-wrap {
-  position: relative;
-  display: flex;
+  position:    relative;
+  display:     flex;
   align-items: center;
-  height: 30px;
-  background: rgba(255, 255, 255, 0.06);
-  border: 1px solid var(--border-navy);
-  transition: border-color 0.15s, background 0.15s;
+  height:      30px;
+  background:  rgba(255, 255, 255, 0.06);
+  border:      1px solid var(--border-navy);
+  transition:  border-color 0.15s, background 0.15s;
 }
 
 .gs-wrap:focus-within {
   border-color: var(--accent);
-  background: rgba(255, 255, 255, 0.10);
+  background:   rgba(255, 255, 255, 0.10);
 }
 
 .gs-icon {
-  position: absolute;
-  left: 8px;
-  font-size: 13px;
-  color: var(--text-muted-navy);
+  position:       absolute;
+  left:           8px;
+  font-size:      13px;
+  color:          var(--text-muted-navy);
   pointer-events: none;
-  line-height: 1;
-  top: 50%;
-  transform: translateY(-50%);
+  line-height:    1;
+  top:            50%;
+  transform:      translateY(-50%);
 }
 
 .gs-input {
-  width: 100%;
-  height: 100%;
-  padding: 0 28px 0 28px;
-  background: transparent;
-  border: none;
-  outline: none;
-  font-family: var(--font-body);
-  font-size: 12px;
-  color: var(--text-on-navy);
+  width:          100%;
+  height:         100%;
+  padding:        0 28px 0 28px;
+  background:     transparent;
+  border:         none;
+  outline:        none;
+  font-family:    var(--font-body);
+  font-size:      12px;
+  color:          var(--text-on-navy);
   letter-spacing: 0.02em;
 }
 
 .gs-input::placeholder {
-  color: var(--text-muted-navy);
+  color:      var(--text-muted-navy);
   font-style: italic;
 }
 
 .gs-clear {
-  position: absolute;
-  right: 6px;
-  top: 50%;
-  transform: translateY(-50%);
+  position:   absolute;
+  right:      6px;
+  top:        50%;
+  transform:  translateY(-50%);
   background: transparent;
-  border: none;
-  color: var(--text-muted-navy);
-  font-size: 16px;
+  border:     none;
+  color:      var(--text-muted-navy);
+  font-size:  16px;
   line-height: 1;
-  cursor: pointer;
-  padding: 0 2px;
+  cursor:     pointer;
+  padding:    0 2px;
   transition: color 0.15s;
 }
 
 .gs-clear:hover {
   color: var(--text-on-navy);
-}
-
-/* ── HOT column filter ▼ arrow tint ─────────────────────── */
-/* Active filter column header gets a gold arrow.            */
-
-.handsontable th.htFiltersActive .changeType {
-  color: var(--accent) !important;
 }

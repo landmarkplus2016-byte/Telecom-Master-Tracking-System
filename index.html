@@ -20,14 +20,79 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;600;700&family=Barlow:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
 
-  <!-- ── Handsontable Community Edition ───────────────────── -->
-  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/handsontable@14.3.0/dist/handsontable.full.min.css">
+  <!-- ── AG Grid Community Edition ───────────────────────── -->
+  <!-- Pin version: bump here + in service-worker.js APP_SHELL if upgrading -->
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/ag-grid-community@33.0.0/styles/ag-grid.css">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/ag-grid-community@33.0.0/styles/ag-theme-alpine.css">
 
   <!-- ── App CSS ───────────────────────────────────────────── -->
   <link rel="stylesheet" href="css/main.css">
   <link rel="stylesheet" href="css/grid.css">
   <link rel="stylesheet" href="css/forms.css">
   <link rel="stylesheet" href="css/filters.css">
+
+  <!-- ── Service Worker — registered before any other script ──
+       Must be first so the SW is active (and injecting COOP/COEP
+       headers) as early as possible on subsequent page loads.
+       DuckDB WASM requires SharedArrayBuffer, which in turn requires
+       those headers.  On the very first visit the SW installs in the
+       background; headers take effect from the second load onward.   -->
+  <script>
+    if ('serviceWorker' in navigator) {
+      navigator.serviceWorker.register('service-worker.js')
+        .then(function (reg) {
+          console.log('[SW] registered — scope:', reg.scope);
+
+          // Show banner immediately if an update is already waiting
+          // (e.g. user reloaded a tab that already detected the new SW)
+          if (reg.waiting) { _showUpdateBanner(reg.waiting); }
+
+          // Detect when a new SW finishes installing and enters "waiting"
+          reg.addEventListener('updatefound', function () {
+            var newWorker = reg.installing;
+            if (!newWorker) return;
+            newWorker.addEventListener('statechange', function () {
+              if (newWorker.state === 'installed' && navigator.serviceWorker.controller) {
+                _showUpdateBanner(newWorker);
+              }
+            });
+          });
+        })
+        .catch(function (err) {
+          console.warn('[SW] registration failed:', err);
+        });
+
+      // Reload when the new SW takes control so all files are fresh
+      var _swReloading = false;
+      navigator.serviceWorker.addEventListener('controllerchange', function () {
+        if (_swReloading) return;
+        _swReloading = true;
+        console.log('[SW] controller changed — reloading for update');
+        window.location.reload();
+      });
+    }
+
+    // Show the update banner (#update-banner is in the HTML body).
+    // Deferred via DOMContentLoaded so the element exists when we query it.
+    function _showUpdateBanner(waitingWorker) {
+      function _doShow() {
+        var banner = document.getElementById('update-banner');
+        var btn    = document.getElementById('update-banner-btn');
+        if (!banner || !btn) return;
+        banner.removeAttribute('hidden');
+        btn.addEventListener('click', function () {
+          waitingWorker.postMessage({ type: 'SKIP_WAITING' });
+          btn.disabled    = true;
+          btn.textContent = 'Updating…';
+        });
+      }
+      if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', _doShow);
+      } else {
+        _doShow();
+      }
+    }
+  </script>
 
   <!-- ── Theme: set data-theme before first paint (no FOUC) ── -->
   <script>(function(){var t=localStorage.getItem('app_theme');if(t&&t!=='navy')document.documentElement.setAttribute('data-theme',t);}());</script>
@@ -415,9 +480,9 @@
       <!-- Populated immediately by Filters.init() in js/filters.js -->
     </aside>
 
-    <!-- Handsontable mount point (js/grid.js) -->
+    <!-- AG Grid mount point (js/grid.js) -->
     <div id="grid-container">
-      <!-- Handsontable instance attached here by js/grid.js -->
+      <!-- ag-theme-alpine class + grid instance attached by Grid.init() -->
     </div>
 
   </div><!-- /#app-body -->
@@ -485,17 +550,23 @@
 <!-- ════════════════════════════════════════════════════════ -->
 <!-- SCRIPTS                                                  -->
 <!-- Load order matters:                                      -->
-<!--   1. Handsontable (global HOT dependency)               -->
-<!--   2. Static data (dropdowns fallback)                   -->
-<!--   3. Infrastructure modules (config → auth → sheets)    -->
-<!--   4. Business logic (offline → id → pricing → grid)     -->
-<!--   5. UI features (filters → delete → export → reconcile)-->
-<!--   6. Background services (backup)                       -->
-<!--   7. app.js last — wires everything together            -->
+<!--   1. AG Grid Community (global agGrid dependency)       -->
+<!--   2. DuckDB WASM (global duckdb — must precede db.js)   -->
+<!--   3. Static data (dropdowns fallback)                   -->
+<!--   4. Infrastructure modules (config → auth → sheets)    -->
+<!--   5. Business logic (db → offline → id → pricing → grid)-->
+<!--   6. UI features (filters → delete → export → reconcile)-->
+<!--   7. Background services (backup)                       -->
+<!--   8. app.js last — wires everything together            -->
 <!-- ════════════════════════════════════════════════════════ -->
 
-<!-- Handsontable Community Edition -->
-<script src="https://cdn.jsdelivr.net/npm/handsontable@14.3.0/dist/handsontable.full.min.js"></script>
+<!-- AG Grid Community Edition (exposes global `agGrid`) -->
+<script src="https://cdn.jsdelivr.net/npm/ag-grid-community@33.0.0/dist/ag-grid-community.min.js"></script>
+
+<!-- DuckDB WASM — browser bundle (exposes global `duckdb` with getJsDelivrBundles / selectBundle).
+     Must load before js/db.js.  Session 1 of BUILD_GUIDE_V2.
+     Pin version: bump here + in service-worker.js APP_SHELL if upgrading. -->
+<script src="https://cdn.jsdelivr.net/npm/@duckdb/duckdb-wasm@1.29.0/dist/duckdb-browser.js"></script>
 
 <!-- xlsx-js-style: SheetJS fork with full cell styling support -->
 <script src="https://cdn.jsdelivr.net/npm/xlsx-js-style@1.2.0/dist/xlsx.bundle.js"></script>
@@ -507,6 +578,9 @@
 <script src="js/config.js"></script>
 <script src="js/auth.js"></script>
 <script src="js/sheets.js"></script>
+
+<!-- DuckDB local database layer (replaces offline.js in a later session) -->
+<script src="js/db.js"></script>
 
 <!-- Business logic -->
 <script src="js/offline.js"></script>
@@ -529,75 +603,8 @@
 <!-- App init — must be last -->
 <script src="js/app.js"></script>
 
-<!-- ── Service Worker registration + update detection ───── -->
-<script>
-  if ('serviceWorker' in navigator) {
-    window.addEventListener('load', function () {
-      navigator.serviceWorker.register('service-worker.js')
-        .then(function (reg) {
-          console.log('[SW] registered — scope:', reg.scope);
-
-          // ── Detect update immediately if a SW is already waiting ──
-          // This covers the case where the user reloads a tab that
-          // already detected a new SW on a previous visit.
-          if (reg.waiting) {
-            _showUpdateBanner(reg.waiting);
-          }
-
-          // ── Detect update when a new SW finishes installing ───────
-          // updatefound fires when a new SW starts downloading.
-          // We then watch its state until it reaches "installed"
-          // (meaning it is waiting to take over).
-          reg.addEventListener('updatefound', function () {
-            var newWorker = reg.installing;
-            if (!newWorker) return;
-            newWorker.addEventListener('statechange', function () {
-              if (newWorker.state === 'installed' && navigator.serviceWorker.controller) {
-                // New SW installed and waiting — old SW still active.
-                // Show the update banner so the user can choose when to apply.
-                _showUpdateBanner(newWorker);
-              }
-            });
-          });
-        })
-        .catch(function (err) {
-          console.warn('[SW] registration failed:', err);
-        });
-
-      // ── Reload when the new SW takes control ─────────────────────
-      // After the user clicks "Update Now", skipWaiting() is called
-      // and the new SW activates. The controllerchange event fires and
-      // we reload so the page picks up all the new cached files.
-      var _reloading = false;
-      navigator.serviceWorker.addEventListener('controllerchange', function () {
-        if (_reloading) return;
-        _reloading = true;
-        console.log('[SW] controller changed — reloading for update');
-        window.location.reload();
-      });
-    });
-  }
-
-  // ── Show the update banner ────────────────────────────────────
-  // Reveals #update-banner (already in HTML, styled in css/main.css).
-  // Wires the "Update Now" button to send SKIP_WAITING to the
-  // waiting SW, which triggers activation and the reload above.
-
-  function _showUpdateBanner(waitingWorker) {
-    var banner = document.getElementById('update-banner');
-    var btn    = document.getElementById('update-banner-btn');
-    if (!banner || !btn) return;
-
-    banner.removeAttribute('hidden');
-
-    btn.addEventListener('click', function () {
-      waitingWorker.postMessage({ type: 'SKIP_WAITING' });
-      // Disable button while the new SW activates + page reloads
-      btn.disabled    = true;
-      btn.textContent = 'Updating\u2026';
-    });
-  }
-</script>
+<!-- Service Worker registration moved to <head> (first script on the page).
+     COOP/COEP header injection and update banner are handled there. -->
 
 </body>
 </html>
