@@ -31,7 +31,7 @@
 // Bump CACHE_VERSION to force a full cache refresh on deploy.
 // Old cache names are deleted in the activate handler.
 
-var CACHE_VERSION = 'v35';
+var CACHE_VERSION = 'v36';
 var CACHE_NAME    = 'telecom-tracker-' + CACHE_VERSION;
 
 // ── App shell — files to pre-cache on install ─────────────
@@ -87,9 +87,6 @@ var APP_SHELL = [
   'https://cdn.jsdelivr.net/npm/ag-grid-community@33.0.0/styles/ag-grid.css',
   'https://cdn.jsdelivr.net/npm/ag-grid-community@33.0.0/styles/ag-theme-alpine.css',
   'https://cdn.jsdelivr.net/npm/ag-grid-community@33.0.0/dist/ag-grid-community.min.js',
-
-  // CDN — DuckDB WASM (browser bundle with bundle selector)
-  'https://cdn.jsdelivr.net/npm/@duckdb/duckdb-wasm@1.29.0/dist/duckdb-browser.js',
 
   // CDN — xlsx-js-style (Excel export + restore tool)
   'https://cdn.jsdelivr.net/npm/xlsx-js-style@1.2.0/dist/xlsx.bundle.js',

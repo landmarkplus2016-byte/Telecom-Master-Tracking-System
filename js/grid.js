@@ -242,6 +242,11 @@ var Grid = (function () {
     container.classList.add('ag-theme-alpine');
 
     _gridApi = agGrid.createGrid(container, {
+      // Use v32-style CSS themes (ag-theme-alpine + ag-grid.css).
+      // Without 'legacy', AG Grid v33 defaults to themeQuartz and
+      // conflicts with the CSS files, causing error #239.
+      theme:       'legacy',
+
       columnDefs:  _buildColDefs(),
       rowData:     [],
       rowHeight:   24,
@@ -252,12 +257,12 @@ var Grid = (function () {
         sortable:         true,
         suppressMovable:  false,
         // Disable AG Grid v32+ automatic cell data type inference.
-        // Without this, AG Grid sees numeric-looking values in text columns
-        // (e.g. site IDs like "5797") and infers them as numeric, then renders
-        // non-numeric values as "Invalid Number".
+        // Without this, text columns whose values look numeric (e.g. site IDs
+        // like "5797") are inferred as numeric and non-numeric values render
+        // as "Invalid Number".
         cellDataType:     false,
         // Per-column filter types are set in _buildColDefs().
-        // Filters fire onFilterChanged → Filters.onColumnFilterChanged() → DuckDB SQL.
+        // Filters fire onFilterChanged → Filters.js → DuckDB SQL.
       },
 
       // ── Row visual rules ──────────────────────────────────
@@ -271,8 +276,11 @@ var Grid = (function () {
       stopEditingWhenCellsLoseFocus: true,
       singleClickEdit:              false,
 
-      rowSelection:                'multiple',
-      suppressRowClickSelection:   true,
+      // v32.2+ object format — 'multiple' string is deprecated
+      rowSelection: {
+        mode:                'multiRow',
+        enableClickSelection: false,
+      },
       animateRows:                 false,
 
       // ── Events ────────────────────────────────────────────

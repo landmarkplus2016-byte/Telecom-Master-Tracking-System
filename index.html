@@ -563,10 +563,9 @@
 <!-- AG Grid Community Edition (exposes global `agGrid`) -->
 <script src="https://cdn.jsdelivr.net/npm/ag-grid-community@33.0.0/dist/ag-grid-community.min.js"></script>
 
-<!-- DuckDB WASM — browser bundle (exposes global `duckdb` with getJsDelivrBundles / selectBundle).
-     Must load before js/db.js.  Session 1 of BUILD_GUIDE_V2.
-     Pin version: bump here + in service-worker.js APP_SHELL if upgrading. -->
-<script src="https://cdn.jsdelivr.net/npm/@duckdb/duckdb-wasm@1.29.0/dist/duckdb-browser.js"></script>
+<!-- DuckDB WASM is loaded by js/db.js via dynamic import() — no <script> tag needed.
+     The duckdb-browser.js UMD bundle does not expose a global in v1.29.0 (ES module).
+     db.js uses: import('https://cdn.jsdelivr.net/npm/@duckdb/duckdb-wasm@1.29.0/+esm') -->
 
 <!-- xlsx-js-style: SheetJS fork with full cell styling support -->
 <script src="https://cdn.jsdelivr.net/npm/xlsx-js-style@1.2.0/dist/xlsx.bundle.js"></script>

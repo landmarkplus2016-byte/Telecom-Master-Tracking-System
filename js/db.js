@@ -23,7 +23,10 @@ var Db = (function () {
 
   // ── Constants ─────────────────────────────────────────────
 
-  var DB_FILE = 'telecom-tracker.db';   // OPFS file name
+  var DB_FILE  = 'telecom-tracker.db';   // OPFS file name
+  // jsDelivr ESM endpoint — works regardless of whether duckdb-browser.js
+  // exposes a global.  Dynamic import() handles ES modules correctly.
+  var DUCKDB_CDN = 'https://cdn.jsdelivr.net/npm/@duckdb/duckdb-wasm@1.29.0/+esm';
 
   // ── Internal state ────────────────────────────────────────
 
@@ -31,6 +34,7 @@ var Db = (function () {
   var _conn  = null;    // persistent connection (one per session)
   var _ready = false;
   var _opfs  = false;   // true when OPFS persistence is active
+  var _duckdbLib = null; // cached module reference (avoids re-import on re-init)
 
   // ── Schema definition ─────────────────────────────────────
   //
@@ -113,6 +117,31 @@ var Db = (function () {
   // INITIALISATION
   // ══════════════════════════════════════════════════════════
 
+  // ── DuckDB module loader ───────────────────────────────────
+  //
+  // duckdb-browser.js at v1.29.0 is an ES module, not a UMD bundle.
+  // Loading it via <script src> does NOT create window.duckdb.
+  // Dynamic import() handles ES modules correctly and is supported in
+  // all modern Chrome versions (which is our target browser).
+  //
+  // We also keep the global fallback so that if someone does add a
+  // UMD-compatible script tag in the future, it still works.
+
+  async function _loadDuckDB() {
+    if (_duckdbLib) return _duckdbLib;
+
+    // Prefer an already-available global (e.g. older UMD script tag)
+    if (typeof duckdb !== 'undefined') {
+      _duckdbLib = duckdb;
+      return _duckdbLib;
+    }
+
+    // Load the ESM bundle via dynamic import — self-contained, no <script> needed
+    console.log('[Db] loading DuckDB WASM via dynamic import...');
+    _duckdbLib = await import(DUCKDB_CDN);
+    return _duckdbLib;
+  }
+
   /**
    * Load DuckDB WASM and open the OPFS-backed database.
    * Idempotent — safe to call multiple times.
@@ -123,41 +152,35 @@ var Db = (function () {
   async function init() {
     if (_ready) return;
 
-    if (typeof duckdb === 'undefined') {
-      throw new Error('[Db] DuckDB WASM global not found — check CDN <script> in index.html');
-    }
+    var d = await _loadDuckDB();
 
     console.log('[Db] init() — selecting bundle...');
-    var bundles = duckdb.getJsDelivrBundles();
-    var bundle  = await duckdb.selectBundle(bundles);
+    var bundles = d.getJsDelivrBundles();
+    var bundle  = await d.selectBundle(bundles);
     console.log('[Db] bundle:', bundle.mainModule);
 
-    // Create the worker via a blob URL so the browser treats it as
-    // same-origin, which sidesteps COEP worker-script restrictions.
-    // importScripts() inside the worker fetches the CDN script; CDN
-    // responses go through our SW which stamps CORP headers on them.
+    // Blob worker: same-origin, sidesteps COEP worker-script restrictions.
+    // importScripts() inside the worker fetches the CDN worker; CDN responses
+    // go through our SW which stamps CORP headers on them.
     var workerBlob = new Blob(
       ['importScripts("' + bundle.mainWorker + '");'],
       { type: 'text/javascript' }
     );
     var workerUrl = URL.createObjectURL(workerBlob);
     var worker    = new Worker(workerUrl);
-    URL.revokeObjectURL(workerUrl);   // revoke immediately — Worker has it
+    URL.revokeObjectURL(workerUrl);
 
-    var logger = new duckdb.ConsoleLogger();
-    _db = new duckdb.AsyncDuckDB(logger, worker);
+    var logger = new d.ConsoleLogger();
+    _db = new d.AsyncDuckDB(logger, worker);
 
     // pthreadWorker is only present in the COI build (SharedArrayBuffer).
-    // Passing undefined for non-COI builds is fine.
     await _db.instantiate(bundle.mainModule, bundle.pthreadWorker);
 
     // Try OPFS first; fall back to in-memory if not available.
-    // OPFS requires cross-origin isolation (provided by the SW after
-    // the first page load).
     try {
       await _db.open({
         path:       'opfs://' + DB_FILE,
-        accessMode: duckdb.DuckDBAccessMode.READ_WRITE,
+        accessMode: d.DuckDBAccessMode.READ_WRITE,
       });
       _opfs = true;
       console.log('[Db] OPFS database opened:', DB_FILE);
