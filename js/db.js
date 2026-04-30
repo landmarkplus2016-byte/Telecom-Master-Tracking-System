@@ -170,7 +170,9 @@ var Db = (function () {
     var worker    = new Worker(workerUrl);
     URL.revokeObjectURL(workerUrl);
 
-    var logger = new d.ConsoleLogger();
+    // VoidLogger suppresses DuckDB's verbose console output (query echoes,
+    // internal warnings).  Real errors still surface via our .catch() handlers.
+    var logger = new d.VoidLogger();
     _db = new d.AsyncDuckDB(logger, worker);
 
     // pthreadWorker is only present in the COI build (SharedArrayBuffer).
