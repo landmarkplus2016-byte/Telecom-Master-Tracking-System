@@ -355,8 +355,9 @@ var Sheets = (function () {
         // after a manager resolves them, and shows the button on the manager's
         // tab even in incognito (where IDB is empty).
         if (typeof result.conflictCount === 'number') {
-          if (typeof Offline !== 'undefined' && Offline.setServerConflictCount) {
-            Offline.setServerConflictCount(result.conflictCount);
+          // Conflict resolution panel is implemented in Session 7
+          if (typeof Sync !== 'undefined' && Sync.setServerConflictCount) {
+            Sync.setServerConflictCount(result.conflictCount);
           }
         }
       }

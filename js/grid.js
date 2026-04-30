@@ -886,19 +886,19 @@ var Grid = (function () {
       rowData._local_id = rowNode.data._local_id;
     }
 
-    if (typeof Offline !== 'undefined') {
-      Offline.queueSave(rowData, function (result) {
+    if (typeof Sync !== 'undefined') {
+      Sync.queueSave(rowData, function (result) {
         if (!result.success) {
           console.error('[Grid] save failed:', result.error);
           return;
         }
+        // rowIndex is assigned later by sync.js flush() via Grid.updateRowIndex()
         if (result.rowIndex && rowNode.data) {
           rowNode.data._row_index = result.rowIndex;
-          // Stamp _row_id so future JC queries can self-exclude this row
-          rowNode.data._row_id = 'row_' + String(result.rowIndex);
+          rowNode.data._row_id    = 'row_' + String(result.rowIndex);
           delete rowNode.data._local_id;
         }
-        console.log('[Grid] row saved — sheet row:', result.rowIndex);
+        console.log('[Grid] queued save — sheet row:', result.rowIndex || '(pending sync)');
       });
     }
   }
@@ -974,14 +974,28 @@ var Grid = (function () {
         console.error('[Grid] refresh failed:', result.error);
         return;
       }
-      if (typeof Offline !== 'undefined') {
-        Offline.replaceAllRows(result.rows);
-        Offline.setLastSyncTime(result.serverTime);
-        Offline.getPendingQueue(function (queueEntries) {
-          var pendingNew = queueEntries
-            .filter(function (e) { return e.rowData && !e.rowData._row_index; })
-            .map(function (e) { return e.rowData; });
+
+      if (typeof Sync !== 'undefined') Sync.setLastSyncTime(result.serverTime);
+
+      if (typeof Db !== 'undefined') {
+        Db.init().then(function () {
+          return Db.clearRows();
+        }).then(function () {
+          return Db.loadAllRows(result.rows);
+        }).then(function () {
+          // Re-inject pending new rows (created offline, not yet synced)
+          return Db.query("SELECT payload FROM pending_queue WHERE action = 'save'");
+        }).then(function (pending) {
+          var pendingNew = [];
+          pending.forEach(function (p) {
+            try {
+              var r = JSON.parse(p.payload);
+              if (r && !r._row_index) pendingNew.push(r);
+            } catch (_) {}
+          });
           loadData(result.rows.concat(pendingNew));
+        }).catch(function () {
+          loadData(result.rows);
         });
       } else {
         loadData(result.rows);

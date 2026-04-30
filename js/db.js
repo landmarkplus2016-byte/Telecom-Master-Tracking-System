@@ -240,11 +240,25 @@ var Db = (function () {
       '\n)'
     );
 
-    // metadata — key/value pairs for session state (owner name, role, etc.)
+    // metadata — key/value pairs for session state (owner name, role, sync time, etc.)
     await _conn.query(
       'CREATE TABLE IF NOT EXISTS metadata (\n' +
       '  key   TEXT PRIMARY KEY,\n' +
       '  value TEXT\n' +
+      ')'
+    );
+
+    // pending_queue — edits waiting to be flushed to Apps Script.
+    // One row per logical "last write wins" on each row_id.
+    // retry_count is incremented on each failed flush attempt;
+    // entries with retry_count >= MAX_RETRIES are skipped until next reconnect.
+    await _conn.query(
+      'CREATE TABLE IF NOT EXISTS pending_queue (\n' +
+      '  row_id      TEXT PRIMARY KEY,\n' +
+      '  payload     TEXT NOT NULL,\n' +
+      '  action      TEXT DEFAULT \'save\',\n' +
+      '  queued_at   TIMESTAMP DEFAULT CURRENT_TIMESTAMP,\n' +
+      '  retry_count INTEGER DEFAULT 0\n' +
       ')'
     );
   }
@@ -445,12 +459,85 @@ var Db = (function () {
   }
 
   // ══════════════════════════════════════════════════════════
+  // METADATA (key/value store)
+  // ══════════════════════════════════════════════════════════
+
+  /** Read a metadata value by key.  Returns null if not found. */
+  async function getMeta(key) {
+    _assertReady();
+    var rows = await query("SELECT value FROM metadata WHERE key = ?", [String(key)]);
+    return rows.length ? rows[0].value : null;
+  }
+
+  /** Write (upsert) a metadata key/value pair. */
+  async function setMeta(key, value) {
+    _assertReady();
+    await _upsertMeta(String(key), String(value));
+  }
+
+  // ══════════════════════════════════════════════════════════
+  // PENDING QUEUE
+  // ══════════════════════════════════════════════════════════
+
+  /**
+   * Add or update an entry in the pending_queue table.
+   * Last-write-wins: editing the same row multiple times while offline
+   * keeps only the most recent payload (ON CONFLICT resets retry_count).
+   */
+  async function queuePending(rowId, payload, action) {
+    _assertReady();
+    await _conn.query(
+      "INSERT INTO pending_queue (row_id, payload, action, queued_at, retry_count) " +
+      "VALUES (" +
+        _sqlStr(String(rowId)) + ", " +
+        _sqlStr(String(payload)) + ", " +
+        _sqlStr(String(action || 'save')) + ", " +
+        "CURRENT_TIMESTAMP, 0) " +
+      "ON CONFLICT (row_id) DO UPDATE SET " +
+        "payload = excluded.payload, " +
+        "action = excluded.action, " +
+        "queued_at = excluded.queued_at, " +
+        "retry_count = 0"
+    );
+  }
+
+  /** Remove an entry from the pending_queue after a successful flush. */
+  async function dequeuePending(rowId) {
+    _assertReady();
+    await _conn.query(
+      "DELETE FROM pending_queue WHERE row_id = " + _sqlStr(String(rowId))
+    );
+  }
+
+  /** Increment retry_count after a failed flush attempt. */
+  async function incrementRetryCount(rowId) {
+    _assertReady();
+    await _conn.query(
+      "UPDATE pending_queue SET retry_count = retry_count + 1 " +
+      "WHERE row_id = " + _sqlStr(String(rowId))
+    );
+  }
+
+  /**
+   * Soft-delete a row in the local rows table and queue a delete
+   * action so sync.js can notify Apps Script on the next flush.
+   */
+  async function deleteRow(rowId) {
+    _assertReady();
+    await _conn.query(
+      "UPDATE rows SET _is_deleted = true, _pending_sync = true " +
+      "WHERE _row_id = " + _sqlStr(String(rowId))
+    );
+    var payload = JSON.stringify({ _row_id: rowId, _action: 'delete' });
+    await queuePending(rowId, payload, 'delete');
+  }
+
+  // ══════════════════════════════════════════════════════════
   // SYNC HELPERS
   // ══════════════════════════════════════════════════════════
 
   /**
    * Returns all rows where _pending_sync = true (not yet written to server).
-   * Called by sync.js when draining the offline queue.
    */
   async function getPendingRows() {
     _assertReady();
@@ -464,7 +551,7 @@ var Db = (function () {
   async function markSynced(rowId) {
     _assertReady();
     await _conn.query(
-      "UPDATE rows SET _pending_sync = false WHERE _row_id = '" + _esc(String(rowId)) + "'"
+      "UPDATE rows SET _pending_sync = false WHERE _row_id = " + _sqlStr(String(rowId))
     );
   }
 
@@ -510,15 +597,21 @@ var Db = (function () {
   // ══════════════════════════════════════════════════════════
 
   return {
-    init:             init,
-    getSessionOwner:  getSessionOwner,
-    setSessionOwner:  setSessionOwner,
-    clearRows:        clearRows,
-    loadAllRows:      loadAllRows,
-    upsertRow:        upsertRow,
-    query:            query,
-    getPendingRows:   getPendingRows,
-    markSynced:       markSynced,
+    init:                 init,
+    getSessionOwner:      getSessionOwner,
+    setSessionOwner:      setSessionOwner,
+    clearRows:            clearRows,
+    loadAllRows:          loadAllRows,
+    upsertRow:            upsertRow,
+    query:                query,
+    getPendingRows:       getPendingRows,
+    markSynced:           markSynced,
+    getMeta:              getMeta,
+    setMeta:              setMeta,
+    queuePending:         queuePending,
+    dequeuePending:       dequeuePending,
+    incrementRetryCount:  incrementRetryCount,
+    deleteRow:            deleteRow,
   };
 
 }());

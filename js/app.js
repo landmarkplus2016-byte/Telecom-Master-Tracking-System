@@ -7,11 +7,12 @@
 //   - Entry point: called last after all modules are loaded
 //   - Check for existing session (sessionStorage) on reload
 //   - Route to: setup screen → login screen → main app
+//   - On login: Db.init() → session owner check → full or delta fetch
 //   - Wire toolbar buttons (role-gated)
 //   - Show / hide screens
 //
-// This is a Stage 1 stub. Expand in later stages as each
-// module (grid, filters, backup, etc.) is built out.
+// Session 5: offline.js retired.  All storage is DuckDB (via db.js).
+// Sync is handled by sync.js (DuckDB pending_queue → Apps Script batches of 50).
 // ============================================================
 
 (function () {
@@ -21,31 +22,23 @@
   function init() {
     console.log('[app.js] init() — starting');
 
-    // Sync theme meta tag + active swatch state (the inline <head>
-    // script already applied data-theme before first paint)
     if (typeof Theme !== 'undefined') Theme.init();
 
-    // If a session already exists (page reload within same tab),
-    // skip login and go straight to the app.
     var name = sessionStorage.getItem('app_name');
     var role = sessionStorage.getItem('app_role');
-
     var code = sessionStorage.getItem('app_code');
+
     if (name && role && code) {
       console.log('[app.js] Session found — name:', name, 'role:', role);
       _showApp(name, role);
       return;
     }
 
-    // Session incomplete (missing code) — clear and re-login
     if (name || role) {
-      console.log('[app.js] Incomplete session — clearing and re-authenticating');
+      console.log('[app.js] Incomplete session — clearing');
       sessionStorage.clear();
     }
 
-    console.log('[app.js] No session — handing off to Auth.init()');
-
-    // No session → Auth handles setup-screen-or-login routing
     Auth.init(function onLoginSuccess(name, role) {
       console.log('[app.js] Login success — name:', name, 'role:', role);
       _showApp(name, role);
@@ -57,164 +50,171 @@
   function _showApp(name, role) {
     console.log('[app.js] _showApp() — role:', role);
 
-    // Hide loading screen
     _hide('screen-loading');
-
-    // Render app chrome (logo + role badge in header)
     _renderHeader(name, role);
-
-    // Show the main app screen
     _show('screen-app');
 
-    // Open IndexedDB first — needed for offline startup fallback and
-    // for the sync queue to function. Callback is fast (< 50 ms typically).
-    Offline.init(function () {
+    // ── 1. Config (dropdowns, pricing) — must finish before Grid.init ──
+    _setLoadingStatus('Loading config…');
 
-      // Fetch price config + dropdowns first, then init grid, then load rows.
-      // Order matters: dropdowns and pricing must be ready before Grid.init
-      // so that column sources are wired correctly on first render.
-      _setLoadingStatus('Loading config\u2026');
-      Sheets.fetchConfig(function (configResult) {
-        if (configResult.success) {
-          Pricing.init(configResult);
-          Grid.applyDropdowns(configResult.dropdowns || {}, configResult.priceList || []);
-        } else {
-          // Non-fatal: both modules degrade gracefully with no config data
-          console.warn('[app.js] fetchConfig failed:', configResult.error, '— pricing + dropdowns disabled');
-          Pricing.init(null);
-          Grid.applyDropdowns({}, []);
+    Sheets.fetchConfig(function (configResult) {
+      if (configResult.success) {
+        Pricing.init(configResult);
+        Grid.applyDropdowns(configResult.dropdowns || {}, configResult.priceList || []);
+      } else {
+        console.warn('[app.js] fetchConfig failed:', configResult.error);
+        Pricing.init(null);
+        Grid.applyDropdowns({}, []);
+      }
+
+      // ── 2. Grid and all UI modules ──────────────────────────
+      Grid.init(role, name);
+
+      if (typeof Filters    !== 'undefined') Filters.init(role, name);
+      if (typeof Theme      !== 'undefined') Theme.renderDropdown();
+      if (typeof Delete     !== 'undefined') Delete.init(role, name);
+      if (typeof Export     !== 'undefined') Export.init(role, name);
+      if (typeof Backup     !== 'undefined') Backup.init(role, name);
+      if (typeof Reconcile  !== 'undefined') {
+        Reconcile.init(role, name);
+        Reconcile.wireToolbarButton();
+      }
+
+      // Presence heartbeat + change notification for manager
+      Sheets.startPresence(name, function _onCoordinatorChanges() {
+        if (role !== 'manager') return;
+        var since = Sync.getLastSyncTime();
+        if (since) _runDeltaSync(since);
+      });
+
+      // ── 3. DuckDB startup — loads data into DuckDB, then to grid ─
+      _setLoadingStatus('Initializing local database…');
+
+      Db.init().then(function () {
+        return Db.getSessionOwner();
+
+      }).then(function (owner) {
+        var isSameUser = owner && owner.name === name;
+
+        if (!isSameUser) {
+          // Different user (or first-ever run): clear all local data and
+          // do a full fetch so we never show another user's rows.
+          console.log('[app.js] session owner changed (',
+            (owner ? owner.name : 'none'), '→', name, ') — clearing DuckDB');
+          return Db.clearRows()
+            .then(function () { return Db.setSessionOwner(name, role); })
+            .then(function () { return _doFullFetch(); });
         }
 
-        // Init grid AFTER dropdowns are loaded so column sources are set
-        Grid.init(role, name);
-
-        // Wire filters — global search + column filter status panel
-        if (typeof Filters !== 'undefined') {
-          Filters.init(role, name);
+        // Same user — load from local DuckDB immediately, then delta-sync
+        var since = Sync.getLastSyncTime();
+        if (since) {
+          return _startupFromCache(since);
         }
+        // No sync time = first load for this user on this device
+        return _doFullFetch();
 
-        // Theme dropdown — injected into the filter ribbon after Filters.init
-        // so the panel already exists and the anchor survives future refreshes
-        if (typeof Theme !== 'undefined') {
-          Theme.renderDropdown();
-        }
+      }).then(function () {
+        // DuckDB is populated — initialize sync queue (drain if pending)
+        Sync.init();
 
-        // Wire delete workflow + manager panel — all roles
-        if (typeof Delete !== 'undefined') {
-          Delete.init(role, name);
-        }
+      }).catch(function (e) {
+        console.error('[app.js] DuckDB startup failed:', e.message || e);
+        // DuckDB unavailable — fall through to a direct Apps Script fetch
+        _doFullFetch().then(function () { Sync.init(); });
+      });
+    });
+  }
 
-        // Wire export panel — all roles
-        if (typeof Export !== 'undefined') {
-          Export.init(role, name);
-        }
+  // ── Full fetch ─────────────────────────────────────────────
+  //
+  // Downloads all rows from Apps Script, stores in DuckDB, loads the grid.
+  // Used on: first load, user switch, or manual Refresh.
+  // Returns a Promise.
 
-        // Wire backup system — all roles
-        // Injects "Backup Now" button, restores saved folder handle,
-        // and checks for any missed scheduled backups on startup.
-        if (typeof Backup !== 'undefined') {
-          Backup.init(role, name);
-        }
+  function _doFullFetch() {
+    if (!navigator.onLine) {
+      _hide('screen-loading');
+      _showError('You are offline and no cached data is available. Connect to the internet and reload.');
+      return Promise.resolve();
+    }
 
-        // Wire reconciliation panel — invoicing + manager only
-        if (typeof Reconcile !== 'undefined') {
-          Reconcile.init(role, name);
-          Reconcile.wireToolbarButton();
-        }
+    _setLoadingStatus('Loading data…');
 
-        // Start presence heartbeat — fires immediately then every 30 s.
-        // Must come after Grid.init so the logout button (inserted by
-        // _renderHeader) already exists in #presence-bar when the first
-        // avatar cluster is created.
-        //
-        // The onChanges callback triggers an immediate delta sync when the
-        // manager's heartbeat returns new coordinator saves. Without this,
-        // the manager's grid only updates on the 2-minute background tick.
-        Sheets.startPresence(name, function _onCoordinatorChanges() {
-          if (role !== 'manager') return;
-          var since = Offline.getLastSyncTime();
-          if (since) _runDeltaSync(since);
-        });
+    return new Promise(function (resolve) {
+      Sheets.fetchAllRows(function (result) {
+        _hide('screen-loading');
 
-        // ── Offline startup: skip network fetch, load from IDB ──────
-        if (!navigator.onLine) {
-          _setLoadingStatus('Loading from cache\u2026');
-          Offline.getAllRows(function (cachedRows) {
-            _hide('screen-loading');
-            if (cachedRows.length) {
-              console.log('[app.js] Offline — loaded', cachedRows.length, 'rows from cache');
-              Grid.loadData(cachedRows);
-            } else {
-              _showError('You are offline and no cached data is available. Connect to the internet and reload.');
-            }
-          });
+        if (!result.success) {
+          console.error('[app.js] fetchAllRows failed:', result.error);
+          _showError('Could not load data: ' + result.error);
+          resolve();
           return;
         }
 
-        // ── Startup: IDB-first, then background full fetch ─────────
-        // Show cached data instantly, then sync in the background.
-        // Full fetch only runs if IDB is empty (first-ever load).
-        // Use the Refresh button to force a full re-fetch at any time.
-        Offline.getAllRows(function (cachedRows) {
-          if (cachedRows.length) {
-            // IDB has data — show it immediately, no loading wait
-            console.log('[app.js] startup — showing', cachedRows.length, 'cached rows instantly');
-            _hide('screen-loading');
+        console.log('[app.js] full fetch — rows received:', result.rows.length);
+        Sync.setLastSyncTime(result.serverTime);
 
-            Offline.getPendingQueue(function (queueEntries) {
-              var pendingNew = queueEntries
-                .filter(function (e) { return e.rowData && !e.rowData._row_index; })
-                .map(function (e) { return e.rowData; });
-              Grid.loadData(cachedRows.concat(pendingNew));
-
-              // Start delta sync AFTER Grid.loadData so applyDelta always
-              // fires into a populated _allData, never into an empty grid.
-              var since = Offline.getLastSyncTime();
-              if (since) {
-                _runDeltaSync(since, function () {
-                  _startBackgroundSync();
-                });
-              } else {
-                _startBackgroundSync();
-              }
-            });
-
-          } else {
-            // No cache — first-ever load: full fetch required
-            _setLoadingStatus('Loading data\u2026');
-            Sheets.fetchAllRows(function (result) {
-              _hide('screen-loading');
-              if (!result.success) {
-                console.error('[app.js] fetchAllRows failed:', result.error);
-                _showError('Could not load data: ' + result.error);
-                return;
-              }
-              console.log('[app.js] first load — rows received:', result.rows.length);
-
-              Offline.replaceAllRows(result.rows);
-              Offline.setLastSyncTime(result.serverTime);
-
-              Offline.getPendingQueue(function (queueEntries) {
-                var pendingNew = queueEntries
-                  .filter(function (e) { return e.rowData && !e.rowData._row_index; })
-                  .map(function (e) { return e.rowData; });
-                Grid.loadData(result.rows.concat(pendingNew));
-                _startBackgroundSync();
-              });
-            });
-          }
+        Db.loadAllRows(result.rows).then(function () {
+          Grid.loadData(result.rows);
+          _startBackgroundSync();
+          resolve();
+        }).catch(function (e) {
+          // DuckDB load failed — still show rows in the grid
+          console.warn('[app.js] DuckDB loadAllRows failed:', e.message || e);
+          Grid.loadData(result.rows);
+          _startBackgroundSync();
+          resolve();
         });
       });
     });
   }
 
-  // ── Delta sync ────────────────────────────────────────────
+  // ── Startup from cache ─────────────────────────────────────
   //
-  // Fetches rows changed since `since` (epoch-ms), skips any row that
-  // has a pending local edit in the queue, merges the rest into IDB
-  // and the grid, and advances the sync cursor.
+  // Show DuckDB rows instantly, then run a background delta sync.
+  // "Pending new rows" (created offline, not yet assigned a server row index)
+  // are re-injected from the pending_queue so they remain visible.
+  // Returns a Promise.
+
+  function _startupFromCache(since) {
+    _setLoadingStatus('Loading from cache…');
+
+    return Db.query('SELECT * FROM rows WHERE _is_deleted = false').then(function (rows) {
+
+      // Re-inject pending new rows so they stay visible in the grid
+      // while waiting for the flush to assign them a server row index.
+      return Db.query(
+        "SELECT payload FROM pending_queue WHERE action = 'save'"
+      ).then(function (pending) {
+        var pendingNew = [];
+        pending.forEach(function (p) {
+          try {
+            var r = JSON.parse(p.payload);
+            if (r && !r._row_index) pendingNew.push(r);
+          } catch (_) {}
+        });
+
+        _hide('screen-loading');
+        Grid.loadData(rows.concat(pendingNew));
+        console.log('[app.js] startup from DuckDB —', rows.length, 'cached rows +',
+          pendingNew.length, 'pending new');
+
+        // Background delta sync (only when online)
+        if (navigator.onLine) {
+          _runDeltaSync(since, function () { _startBackgroundSync(); });
+        } else {
+          _startBackgroundSync();
+        }
+      });
+    });
+  }
+
+  // ── Delta sync ─────────────────────────────────────────────
   //
-  // cb is optional — called when done (success or failure).
+  // Fetches rows changed since `since` (epoch-ms).
+  // Skips rows that have a pending local edit in the queue (offline edits win).
+  // cb is optional — called when done.
 
   function _runDeltaSync(since, cb) {
     Sheets.fetchDelta(since, function (result) {
@@ -228,49 +228,64 @@
       console.log('[app.js] delta sync — server returned', changed.length, 'changed rows');
 
       if (!changed.length) {
-        Offline.setLastSyncTime(result.serverTime);
+        Sync.setLastSyncTime(result.serverTime);
         if (cb) cb();
         return;
       }
 
-      // Skip rows that have pending local edits to avoid overwriting them
-      Offline.getPendingRowIndexes(function (pendingMap) {
-        var toApply = changed.filter(function (r) {
-          return !pendingMap[String(r._row_index)];
+      // Read pending queue to know which row indexes have un-flushed local edits
+      Db.query('SELECT row_id FROM pending_queue').then(function (pending) {
+        var pendingMap = {};
+        pending.forEach(function (p) {
+          // row_id is 'row_N' — extract the numeric index for matching
+          var m = p.row_id && p.row_id.match(/^row_(\d+)$/);
+          if (m) pendingMap[m[1]] = true;
         });
 
-        if (toApply.length) {
-          Offline.storeRows(toApply);
-          Grid.applyDelta(toApply);
-          console.log('[app.js] delta sync applied', toApply.length, 'rows;',
-            changed.length - toApply.length, 'skipped (pending local edits)');
+        var toApply = changed.filter(function (r) {
+          return !pendingMap[String(r._row_index || '')];
+        });
+
+        var skipped = changed.length - toApply.length;
+        if (skipped > 0) {
+          console.log('[app.js] delta sync skipped', skipped, 'row(s) with pending local edits');
         }
 
-        Offline.setLastSyncTime(result.serverTime);
+        if (!toApply.length) {
+          Sync.setLastSyncTime(result.serverTime);
+          if (cb) cb();
+          return;
+        }
+
+        return Db.loadAllRows(toApply).then(function () {
+          Grid.applyDelta(toApply);
+          console.log('[app.js] delta sync applied', toApply.length, 'rows');
+          Sync.setLastSyncTime(result.serverTime);
+          if (cb) cb();
+        });
+
+      }).catch(function (e) {
+        console.warn('[app.js] delta sync DuckDB update failed:', e.message || e);
         if (cb) cb();
       });
     });
   }
 
-  // ── Background sync timer ─────────────────────────────────
-  //
-  // Polls for changes every BACKGROUND_SYNC_INTERVAL_MS while the
-  // app is open. Only runs when the tab is visible and the device
-  // is online — skips silently otherwise.
+  // ── Background sync timer ──────────────────────────────────
 
-  var BACKGROUND_SYNC_INTERVAL_MS = 30 * 1000; // 30 seconds
+  var BACKGROUND_SYNC_MS = 30 * 1000; // 30 seconds
   var _bgSyncTimer = null;
 
   function _startBackgroundSync() {
-    if (_bgSyncTimer) return; // already running
+    if (_bgSyncTimer) return;
     _bgSyncTimer = setInterval(function () {
       if (!navigator.onLine) return;
       if (document.hidden)   return;
-      var since = Offline.getLastSyncTime();
+      var since = Sync.getLastSyncTime();
       if (!since) return;
       console.log('[app.js] background sync tick');
       _runDeltaSync(since);
-    }, BACKGROUND_SYNC_INTERVAL_MS);
+    }, BACKGROUND_SYNC_MS);
   }
 
   // ── Helpers ───────────────────────────────────────────────
@@ -312,7 +327,6 @@
       '<span class="app-username">' + name + '</span>',
     ].join('');
 
-    // Logout button — right edge of header
     var presenceBar = document.getElementById('presence-bar');
     if (presenceBar && !document.getElementById('logout-btn')) {
       var logoutBtn = document.createElement('button');
@@ -320,123 +334,28 @@
       logoutBtn.title     = 'Sign out';
       logoutBtn.innerHTML = '&#x2197;&#xFE0E; Sign Out';
       logoutBtn.addEventListener('click', _logout);
-
       presenceBar.appendChild(logoutBtn);
     }
 
-    // Inject minimal header styles if not yet present
     if (!document.getElementById('app-header-styles')) {
       var s = document.createElement('style');
-      s.id  = 'app-header-styles';
+      s.id = 'app-header-styles';
       s.textContent = [
-        '#app-header {',
-          'display: flex;',
-          'align-items: center;',
-          'gap: 16px;',
-          'height: 48px;',
-          'padding: 0 20px;',
-          'background: var(--bg-navy);',
-          'border-bottom: 1px solid var(--border-navy);',
-          'flex-shrink: 0;',
-        '}',
-        '#app-logo {',
-          'display: flex;',
-          'align-items: center;',
-          'gap: 10px;',
-        '}',
-        '.app-wordmark {',
-          'font-family: var(--font-display);',
-          'font-weight: 700;',
-          'font-size: 16px;',
-          'letter-spacing: 0.1em;',
-          'text-transform: uppercase;',
-          'color: var(--text-on-navy);',
-          'white-space: nowrap;',
-        '}',
-        '.role-badge {',
-          'font-family: var(--font-mono);',
-          'font-size: 9px;',
-          'letter-spacing: 0.16em;',
-          'text-transform: uppercase;',
-          'padding: 3px 8px;',
-          'border: 1px solid;',
-          'white-space: nowrap;',
-        '}',
-        '.role-badge--coordinator {',
-          'color: var(--text-muted-navy);',
-          'border-color: var(--border-navy);',
-        '}',
-        '.role-badge--invoicing {',
-          'color: var(--accent);',
-          'border-color: rgba(201,151,58,0.4);',
-        '}',
-        '.role-badge--manager {',
-          'color: #7ec8a0;',
-          'border-color: rgba(126,200,160,0.4);',
-        '}',
-        '#screen-app {',
-          'display: flex;',
-          'flex-direction: column;',
-          'height: 100vh;',
-          'overflow: hidden;',
-        '}',
-        '#app-body {',
-          'flex: 1;',
-          'overflow: hidden;',
-          'display: flex;',
-          'flex-direction: column;',
-        '}',
-        '#grid-container {',
-          'flex: 1;',
-        '}',
-        '.app-username {',
-          'font-family: var(--font-body);',
-          'font-size: 12px;',
-          'font-weight: 500;',
-          'color: var(--text-muted-navy);',
-          'white-space: nowrap;',
-          'margin-left: 4px;',
-        '}',
-        '#presence-bar {',
-          'display: flex;',
-          'align-items: center;',
-          'gap: 8px;',
-          'margin-left: auto;',
-        '}',
-        '#logout-btn {',
-          'height: 28px;',
-          'padding: 0 12px;',
-          'font-family: var(--font-display);',
-          'font-weight: 600;',
-          'font-size: 10px;',
-          'letter-spacing: 0.12em;',
-          'text-transform: uppercase;',
-          'background: transparent;',
-          'color: var(--text-muted-navy);',
-          'border: 1px solid var(--border-navy);',
-          'cursor: pointer;',
-          'transition: background 0.15s, color 0.15s;',
-          'white-space: nowrap;',
-        '}',
-        '#logout-btn:hover {',
-          'background: rgba(255,255,255,0.08);',
-          'color: var(--text-on-navy);',
-        '}',
-        '#app-statusbar {',
-          'display: flex;',
-          'align-items: center;',
-          'gap: 20px;',
-          'height: 28px;',
-          'padding: 0 16px;',
-          'background: var(--bg-base);',
-          'border-top: 2px solid rgba(201, 151, 58, 0.35);',
-          'font-family: var(--font-mono);',
-          'font-size: 10px;',
-          'letter-spacing: 0.1em;',
-          'text-transform: uppercase;',
-          'color: var(--text-secondary);',
-          'flex-shrink: 0;',
-        '}',
+        '#app-header{display:flex;align-items:center;gap:16px;height:48px;padding:0 20px;background:var(--bg-navy);border-bottom:1px solid var(--border-navy);flex-shrink:0;}',
+        '#app-logo{display:flex;align-items:center;gap:10px;}',
+        '.app-wordmark{font-family:var(--font-display);font-weight:700;font-size:16px;letter-spacing:0.1em;text-transform:uppercase;color:var(--text-on-navy);white-space:nowrap;}',
+        '.role-badge{font-family:var(--font-mono);font-size:9px;letter-spacing:0.16em;text-transform:uppercase;padding:3px 8px;border:1px solid;white-space:nowrap;}',
+        '.role-badge--coordinator{color:var(--text-muted-navy);border-color:var(--border-navy);}',
+        '.role-badge--invoicing{color:var(--accent);border-color:rgba(201,151,58,0.4);}',
+        '.role-badge--manager{color:#7ec8a0;border-color:rgba(126,200,160,0.4);}',
+        '#screen-app{display:flex;flex-direction:column;height:100vh;overflow:hidden;}',
+        '#app-body{flex:1;overflow:hidden;display:flex;flex-direction:column;}',
+        '#grid-container{flex:1;}',
+        '.app-username{font-family:var(--font-body);font-size:12px;font-weight:500;color:var(--text-muted-navy);white-space:nowrap;margin-left:4px;}',
+        '#presence-bar{display:flex;align-items:center;gap:8px;margin-left:auto;}',
+        '#logout-btn{height:28px;padding:0 12px;font-family:var(--font-display);font-weight:600;font-size:10px;letter-spacing:0.12em;text-transform:uppercase;background:transparent;color:var(--text-muted-navy);border:1px solid var(--border-navy);cursor:pointer;transition:background 0.15s,color 0.15s;white-space:nowrap;}',
+        '#logout-btn:hover{background:rgba(255,255,255,0.08);color:var(--text-on-navy);}',
+        '#app-statusbar{display:flex;align-items:center;gap:20px;height:28px;padding:0 16px;background:var(--bg-base);border-top:2px solid rgba(201,151,58,0.35);font-family:var(--font-mono);font-size:10px;letter-spacing:0.1em;text-transform:uppercase;color:var(--text-secondary);flex-shrink:0;}',
       ].join('\n');
       document.head.appendChild(s);
     }
@@ -451,17 +370,8 @@
     window.location.reload();
   }
 
-  // ── Helpers ───────────────────────────────────────────────
-
-  function _show(id) {
-    var el = document.getElementById(id);
-    if (el) el.removeAttribute('hidden');
-  }
-
-  function _hide(id) {
-    var el = document.getElementById(id);
-    if (el) el.setAttribute('hidden', '');
-  }
+  function _show(id) { var el = document.getElementById(id); if (el) el.removeAttribute('hidden'); }
+  function _hide(id) { var el = document.getElementById(id); if (el) el.setAttribute('hidden', ''); }
 
   // ── Boot ──────────────────────────────────────────────────
 

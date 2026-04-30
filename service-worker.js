@@ -31,7 +31,7 @@
 // Bump CACHE_VERSION to force a full cache refresh on deploy.
 // Old cache names are deleted in the activate handler.
 
-var CACHE_VERSION = 'v38';
+var CACHE_VERSION = 'v39';
 var CACHE_NAME    = 'telecom-tracker-' + CACHE_VERSION;
 
 // ── App shell — files to pre-cache on install ─────────────
@@ -56,7 +56,7 @@ var APP_SHELL = [
 
   // JS — business logic
   './js/db.js',
-  './js/offline.js',
+  './js/sync.js',
   './js/id.js',
   './js/pricing.js',
   './js/grid.js',

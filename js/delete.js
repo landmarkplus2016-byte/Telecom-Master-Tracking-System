@@ -143,8 +143,14 @@ var Delete = (function () {
       // Remove from grid immediately (visual feedback)
       Grid.removeRow(physRowIdx);
 
-      // Remove from IDB so it doesn't re-appear from cache
-      Offline.removeRow(rowIndex, function () { /* silent */ });
+      // Mark as deleted in DuckDB so it doesn't re-appear from cache on next startup
+      if (typeof Db !== 'undefined') {
+        Db.init().then(function () {
+          return Db.query(
+            "UPDATE rows SET _is_deleted = true WHERE _row_id = 'row_" + rowIndex + "'"
+          );
+        }).catch(function () {});
+      }
 
       _hideModal();
       _toast('Record deleted.', 'success');
@@ -391,9 +397,11 @@ var Delete = (function () {
         return;
       }
 
-      // Add the restored row to IDB + grid
+      // Add the restored row to DuckDB + grid
       if (result.row) {
-        Offline.storeRows([result.row]);
+        if (typeof Db !== 'undefined') {
+          Db.init().then(function () { return Db.upsertRow(result.row); }).catch(function () {});
+        }
         Grid.applyDelta([result.row]);
       }
 
@@ -467,11 +475,18 @@ var Delete = (function () {
         return;
       }
 
-      // Wipe IDB — replaceAllRows([]) clears all rows while keeping the DB open
-      Offline.replaceAllRows([], function () {
-        // Reload fresh — app will do a full fetch from the now-empty sheet
+      // Wipe DuckDB — clearRows() removes all tracking data, preserving schema
+      if (typeof Db !== 'undefined') {
+        Db.init().then(function () {
+          return Db.clearRows();
+        }).then(function () {
+          setTimeout(function () { window.location.reload(); }, 300);
+        }).catch(function () {
+          setTimeout(function () { window.location.reload(); }, 300);
+        });
+      } else {
         setTimeout(function () { window.location.reload(); }, 300);
-      });
+      }
     });
   }
 
