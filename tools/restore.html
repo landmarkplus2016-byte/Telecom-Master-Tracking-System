@@ -611,6 +611,96 @@
     }
     .upload-btn:hover:not(:disabled) { background: var(--navy-mid); }
     .upload-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+
+    /* ── Duplicate JC warning ───────────────────────────────── */
+    .imp-dupe-warn {
+      display: flex;
+      gap: 12px;
+      align-items: flex-start;
+      margin: 0 0 14px;
+      padding: 12px 14px;
+      background: rgba(192,57,43,0.06);
+      border: 1px solid rgba(192,57,43,0.3);
+    }
+    .imp-dupe-icon {
+      font-size: 18px;
+      color: #c0392b;
+      flex-shrink: 0;
+      line-height: 1.2;
+    }
+    .imp-dupe-title {
+      font-family: var(--font-disp);
+      font-weight: 700;
+      font-size: 12px;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+      color: #c0392b;
+      margin-bottom: 5px;
+    }
+    .imp-dupe-body {
+      font-family: var(--font-mono);
+      font-size: 10px;
+      color: var(--text-mid);
+      line-height: 1.6;
+    }
+    .imp-dupe-item {
+      display: block;
+    }
+
+    /* ── Row preview table ──────────────────────────────────── */
+    .imp-row-preview {
+      margin-bottom: 14px;
+      border-top: 1px solid var(--border);
+      padding-top: 14px;
+    }
+    .imp-preview-section-title {
+      font-family: var(--font-mono);
+      font-size: 9px;
+      letter-spacing: 0.16em;
+      text-transform: uppercase;
+      color: var(--text-mute);
+      margin-bottom: 8px;
+    }
+    .imp-row-table-wrap {
+      overflow-x: auto;
+      border: 1px solid var(--border);
+      max-height: 220px;
+      overflow-y: auto;
+    }
+    .imp-row-table {
+      width: 100%;
+      border-collapse: collapse;
+      font-family: var(--font-mono);
+      font-size: 10px;
+      white-space: nowrap;
+    }
+    .imp-row-table th {
+      background: var(--navy);
+      color: #e8edf3;
+      font-family: var(--font-disp);
+      font-weight: 600;
+      font-size: 9px;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+      padding: 6px 10px;
+      text-align: left;
+      position: sticky;
+      top: 0;
+      z-index: 1;
+      border-right: 1px solid var(--border-navy);
+    }
+    .imp-row-table th:last-child { border-right: none; }
+    .imp-row-table td {
+      padding: 5px 10px;
+      border-bottom: 1px solid var(--border);
+      color: var(--text);
+      max-width: 180px;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    .imp-row-table tr:last-child td { border-bottom: none; }
+    .imp-row-table tr:nth-child(even) td { background: var(--bg-light); }
+    .imp-row-table td:first-child { color: var(--gold); font-weight: 500; }
   </style>
 </head>
 
@@ -765,6 +855,23 @@
 
         <span class="imp-stat-key">Sheet</span>
         <span class="imp-stat-val" id="imp-sheet-name">—</span>
+      </div>
+
+      <!-- Duplicate JC warning (shown when duplicates found) -->
+      <div class="imp-dupe-warn" id="imp-dupe-warn" hidden>
+        <div class="imp-dupe-icon">&#9888;</div>
+        <div>
+          <div class="imp-dupe-title">Duplicate Job Codes Detected</div>
+          <div class="imp-dupe-body" id="imp-dupe-body"></div>
+        </div>
+      </div>
+
+      <!-- First-20-rows preview table -->
+      <div class="imp-row-preview" id="imp-row-preview" hidden>
+        <div class="imp-preview-section-title">Preview — first 20 rows</div>
+        <div class="imp-row-table-wrap">
+          <table class="imp-row-table" id="imp-row-table"></table>
+        </div>
       </div>
 
       <!-- Connection config -->
@@ -1429,6 +1536,10 @@
     var impDone         = document.getElementById('imp-done');
     var impDoneSub      = document.getElementById('imp-done-sub');
     var impDoneReset    = document.getElementById('imp-done-reset-btn');
+    var impDupeWarn     = document.getElementById('imp-dupe-warn');
+    var impDupeBody     = document.getElementById('imp-dupe-body');
+    var impRowPreview   = document.getElementById('imp-row-preview');
+    var impRowTable     = document.getElementById('imp-row-table');
 
     // ── State renderers ────────────────────────────────────────────
 
@@ -1588,6 +1699,13 @@
 
       _impRows = rows;
 
+      // Check for duplicate JC → multiple sites (uniqueness violation)
+      var dupes = _findDuplicateJCs(rows);
+      _renderDupeWarning(dupes);
+
+      // Render first-20-row preview table
+      _renderRowPreview(rows);
+
       // Populate preview
       impFilenameEl.textContent = filename;
       impRowCount.textContent   = rows.length.toLocaleString() + ' row' + (rows.length === 1 ? '' : 's');
@@ -1608,9 +1726,100 @@
       impSetState('preview');
     }
 
+    // ── Duplicate JC detection ────────────────────────────────────
+    //
+    // Finds Job Codes that appear with more than one distinct Logical Site ID
+    // in the imported rows — a violation of the uniqueness rule (CLAUDE.md).
+    // Does NOT compare against existing system data (standalone tool, no DB access).
+
+    function _findDuplicateJCs(rows) {
+      var jcSiteMap = {};
+      rows.forEach(function (row) {
+        var jc   = String(row.job_code          || '').trim();
+        var site = String(row.logical_site_id   || '').trim();
+        if (!jc) return;
+        if (!jcSiteMap[jc]) jcSiteMap[jc] = {};
+        if (site) jcSiteMap[jc][site] = true;
+      });
+      var dupes = [];
+      Object.keys(jcSiteMap).forEach(function (jc) {
+        var sites = Object.keys(jcSiteMap[jc]);
+        if (sites.length > 1) dupes.push({ jc: jc, sites: sites });
+      });
+      return dupes;
+    }
+
+    function _renderDupeWarning(dupes) {
+      if (!dupes.length) {
+        impDupeWarn.hidden = true;
+        return;
+      }
+      var lines = dupes.slice(0, 10).map(function (d) {
+        return '<span class="imp-dupe-item">JC <strong>' + _hesc(d.jc) + '</strong>' +
+          ' — assigned to ' + d.sites.length + ' different sites: ' +
+          d.sites.map(_hesc).join(', ') + '</span>';
+      });
+      if (dupes.length > 10) {
+        lines.push('<span class="imp-dupe-item">… and ' + (dupes.length - 10) + ' more</span>');
+      }
+      impDupeBody.innerHTML = lines.join('');
+      impDupeWarn.hidden = false;
+    }
+
+    // ── 20-row preview table ──────────────────────────────────────
+    //
+    // Renders the first 20 rows across 6 key columns so the manager
+    // can visually verify the mapping before committing the upload.
+
+    var PREVIEW_COLS = [
+      { key: 'job_code',        label: 'Job Code'    },
+      { key: 'logical_site_id', label: 'Site ID'     },
+      { key: 'task_name',       label: 'Task Name'   },
+      { key: 'coordinator_name',label: 'Coordinator' },
+      { key: 'status',          label: 'Status'      },
+      { key: 'task_date',       label: 'Task Date'   }
+    ];
+
+    function _renderRowPreview(rows) {
+      var preview = rows.slice(0, 20);
+
+      // Build header
+      var thead = '<thead><tr>' +
+        '<th>#</th>' +
+        PREVIEW_COLS.map(function (c) { return '<th>' + _hesc(c.label) + '</th>'; }).join('') +
+        '</tr></thead>';
+
+      // Build rows
+      var tbody = '<tbody>' + preview.map(function (row, i) {
+        return '<tr><td>' + (i + 1) + '</td>' +
+          PREVIEW_COLS.map(function (c) {
+            var val = row[c.key];
+            var display = (val === null || val === undefined || val === '') ? '—' : String(val);
+            return '<td title="' + _hesc(display) + '">' + _hesc(display) + '</td>';
+          }).join('') +
+          '</tr>';
+      }).join('') + '</tbody>';
+
+      impRowTable.innerHTML = thead + tbody;
+      impRowPreview.hidden = false;
+    }
+
     // ── Upload ─────────────────────────────────────────────────────
 
     function uploadRows() {
+      // Block upload if duplicates are unresolved
+      var dupes = _findDuplicateJCs(_impRows);
+      if (dupes.length) {
+        _renderDupeWarning(dupes);
+        impDupeWarn.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+        alert(
+          dupes.length + ' Job Code conflict' + (dupes.length === 1 ? '' : 's') + ' found.\n\n' +
+          'Fix the duplicate JC assignments in your spreadsheet before uploading.\n\n' +
+          'Each Job Code must map to exactly one Logical Site ID.'
+        );
+        return;
+      }
+
       var url  = (impUrlInput.value  || '').trim();
       var name = (impNameInput.value || '').trim();
       var code = (impCodeInput.value || '').trim();
@@ -1710,6 +1919,10 @@
       impResetBtn.disabled  = false;
       impProgressWrap.classList.remove('is-visible');
       impProgressFill.style.width = '0%';
+      impDupeWarn.hidden   = true;
+      impDupeBody.innerHTML = '';
+      impRowPreview.hidden = true;
+      impRowTable.innerHTML = '';
       impSetState('idle');
     }
 

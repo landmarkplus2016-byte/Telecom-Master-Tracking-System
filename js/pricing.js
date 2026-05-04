@@ -1,6 +1,6 @@
 // ============================================================
 // pricing.js — Price version lookup + calculation engine
-// Telecom Coordinator Tracking App — Stage 2
+// Telecom Coordinator Tracking App — Session 6
 // ============================================================
 //
 // Responsibilities (this file only):
@@ -9,16 +9,22 @@
 //   - Look up unit price for a Line Item in the applicable version
 //   - Calculate New Total Price, LMP Portion, Contractor Portion
 //   - Provide per-row visual indicators
+//   - Persist price data to DuckDB and run historical re-evaluation
 //
 // Called by: js/grid.js (_applyPricing) and js/app.js (init)
 // Data loaded by: js/sheets.js → Sheets.fetchConfig()
 //
+// Architecture note (Session 6):
+//   Per-row lookups (resolveVersion, lookupPrice, getContractorSplit)
+//   remain synchronous — AG Grid calls them thousands of times per render.
+//   The in-memory JS cache is the synchronous read layer.
+//   DuckDB tables (price_versions, price_list, contractor_splits) are the
+//   persistence layer and support the historical re-evaluation SQL query.
+//   init() populates both simultaneously; sync functions read from cache only.
+//
 // ============================================================
 // REQUIRED CONFIG TAB SECTIONS
 // ============================================================
-//
-// Add these three sections to your Config tab.
-// Each section ends with a blank row in column A.
 //
 // ── [PRICE_VERSIONS] ─────────────────────────────────────────
 // Version  |  Effective_Date  |  Notes (optional)
@@ -28,51 +34,45 @@
 // ── [PRICE_LIST] ─────────────────────────────────────────────
 // Version  |  Line_Item  |  Unit_Price
 // 2024     |  MW001      |  5000
-// 2024     |  RF002      |  3000
 // 2025     |  MW001      |  5500
-// 2025     |  RF002      |  3300
 //
 // ── [CONTRACTOR_SPLITS] ──────────────────────────────────────
 // Contractor  |  LMP_Pct  |  Contractor_Pct
 // In-House    |  100      |  0
 // Ericsson    |  70       |  30
-// Huawei      |  65       |  35
 //
 // ============================================================
 // Version resolution rules
 // ============================================================
 //
-// 1. Versions are sorted by Effective_Date ascending.
-// 2. The applicable version for a Task Date is the latest version
-//    whose Effective_Date <= Task Date.
-// 3. If Task Date falls before all versions, the earliest version
-//    is used (never error — always return something).
-// 4. No Task Date → use the version with the latest Effective_Date
-//    (i.e. the current active version).
-// 5. No versions configured → all lookups return null; auto-calc
-//    still works for totals using the manually-entered new_price.
+// 1. Versions sorted by Effective_Date ascending.
+// 2. Applicable version for a Task Date = latest version whose
+//    Effective_Date <= Task Date.
+// 3. Task Date before all versions → use earliest version.
+// 4. No Task Date → use the version with the latest Effective_Date.
+// 5. No versions configured → all lookups return null.
 //
 // ============================================================
 
 var Pricing = (function () {
 
-  // ── Internal state ────────────────────────────────────────
+  // ── Internal state (synchronous read cache) ───────────────
 
   var _versions    = [];  // [{ name, effectiveDate: Date }] — sorted asc
   var _priceMap    = {};  // { 'VERSION|line_item_lower': unitPrice }
   var _splits      = [];  // [{ contractor_lower, lmpPct, contractorPct }]
-  var _distMults   = [];  // [{ range_lower, multiplier }] — distance range → multiplier
+  var _distMults   = [];  // [{ range_lower, multiplier }]
   var _ready       = false;
 
   // ── Public: Init ──────────────────────────────────────────
 
   /**
    * Load price data from the Config response.
-   * Called by app.js after Sheets.fetchConfig() resolves.
+   * Called synchronously by app.js after Sheets.fetchConfig() resolves.
+   * Also writes the data to DuckDB tables (async, non-blocking).
    *
    * configData — { versions, priceList, contractorSplits } from Code.gs
-   *              Pass null or {} to mark ready with no data (graceful
-   *              degradation: auto-calc still works, lookups return null).
+   *              Pass null or {} for graceful degradation.
    */
   function init(configData) {
     _versions  = [];
@@ -117,11 +117,21 @@ var Pricing = (function () {
           multiplier:  parseFloat(d.multiplier) || 1
         });
       });
+
+      // ── Persist to DuckDB (async, non-blocking) ─────────
+      // Failures are logged but never rethrow — pricing still works from cache.
+      if (typeof Db !== 'undefined' && Db.loadPriceData) {
+        Db.loadPriceData({
+          versions:         configData.versions         || [],
+          priceList:        configData.priceList        || [],
+          contractorSplits: configData.contractorSplits || []
+        }).catch(function (e) {
+          console.warn('[pricing.js] DuckDB loadPriceData failed:', e.message || e);
+        });
+      }
     }
 
     // ── Fallback distance multipliers ────────────────────
-    // Used when Config tab has no [DISTANCE_MULTIPLIERS] section.
-    // Values match the dropdown options and project spec exactly.
     if (!_distMults.length) {
       _distMults = [
         { range: '0Km - 100Km',   range_lower: '0km - 100km',   multiplier: 1    },
@@ -137,8 +147,6 @@ var Pricing = (function () {
       '| splits:', _splits.length,
       '| distance multipliers:', _distMults.length);
 
-    // ── Diagnostic: show first 5 price map keys and all version names ──
-    // Helps verify that version names and line item strings match exactly.
     var mapKeys = Object.keys(_priceMap);
     if (mapKeys.length) {
       console.log('[pricing.js] sample priceMap keys (first 5):', mapKeys.slice(0, 5));
@@ -160,6 +168,7 @@ var Pricing = (function () {
 
   /**
    * Resolve which version name applies for a given Task Date string.
+   * Synchronous — reads from in-memory cache.
    *
    * taskDate  — "DD-MMM-YYYY" string, or empty/null for current date
    * Returns version name (string) or null if no versions are configured.
@@ -187,6 +196,7 @@ var Pricing = (function () {
   /**
    * Look up the unit price for a Line Item in the version that applies
    * to the given Task Date.
+   * Synchronous — reads from in-memory cache.
    *
    * lineItem  — string (must match a key in [PRICE_LIST])
    * taskDate  — "DD-MMM-YYYY" string, or empty/null for current version
@@ -211,7 +221,7 @@ var Pricing = (function () {
   /**
    * Return the LMP % and Contractor % for a given contractor name.
    * In-House is always 100 / 0 regardless of Config data.
-   * Unknown contractors default to 100 / 0.
+   * Synchronous — reads from in-memory cache.
    */
   function getContractorSplit(contractor) {
     if (!contractor) return { lmpPct: 100, contractorPct: 0 };
@@ -227,7 +237,6 @@ var Pricing = (function () {
       }
     }
 
-    // Contractor not in Config — default to 100 % LMP
     console.warn('[pricing.js] contractor not found in splits:', contractor, '— defaulting to 100% LMP');
     return { lmpPct: 100, contractorPct: 0 };
   }
@@ -236,10 +245,7 @@ var Pricing = (function () {
 
   /**
    * Return the multiplier for a given distance range string.
-   * Falls back to 1 if the range is not in the Config data.
-   *
-   * distanceRange — string matching a row in [DISTANCE_MULTIPLIERS]
-   *                 e.g. "0Km - 100Km", "> 800Km"
+   * Synchronous — reads from in-memory cache.
    */
   function getDistanceMultiplier(distanceRange) {
     if (!distanceRange) return 1;
@@ -247,7 +253,6 @@ var Pricing = (function () {
     for (var i = 0; i < _distMults.length; i++) {
       if (_distMults[i].range_lower === range) return _distMults[i].multiplier;
     }
-    // Not configured — no adjustment
     return 1;
   }
 
@@ -260,9 +265,6 @@ var Pricing = (function () {
    *   New Total Price    = New Price × Absolute Quantity
    *   LMP Portion        = New Total Price × LMP %
    *   Contractor Portion = New Total Price × Contractor %
-   *
-   * absoluteQty — already the result of Actual Quantity × Distance Multiplier,
-   *               computed by grid.js _applyPricing before calling here.
    *
    * Returns { newTotalPrice, lmpPortion, contractorPortion }.
    */
@@ -285,15 +287,22 @@ var Pricing = (function () {
   // ── Public: Visual indicator ──────────────────────────────
 
   /**
-   * Return a per-row visual indicator object { icon, title } based on
-   * whether the Task Date is set and whether the price matches the
-   * applicable version.
+   * Return a per-row visual indicator object { icon, title }.
    *
    * 🔵  No Task Date — using current active version
-   * ✅  Task Date set, price matches applicable version (or no price list)
+   * ✅  Task Date set, price matches applicable version
    * ⚠️  Task Date set but price doesn't match applicable version
+   * 📝  Price is manually overridden by Manager
    */
   function getIndicator(row) {
+    // Manual override takes precedence over version mismatch display
+    if (row.price_manual_override) {
+      return {
+        icon:  '📝',
+        title: 'Price manually set by Manager — version auto-calculation disabled for this row'
+      };
+    }
+
     var taskDate = String(row.task_date  || '').trim();
     var lineItem = String(row.line_item  || '').trim();
     var newPrice = parseFloat(row.new_price) || 0;
@@ -308,7 +317,6 @@ var Pricing = (function () {
     var expected = lookupPrice(lineItem, taskDate);
 
     if (expected === null) {
-      // Line item not in price list — can't verify mismatch
       return {
         icon:  '✅',
         title: 'Task Date set — price version: ' + (resolveVersion(taskDate) || '—')
@@ -326,6 +334,96 @@ var Pricing = (function () {
       icon:  '✅',
       title: 'Task Date set — price matches version ' + (resolveVersion(taskDate) || '—')
     };
+  }
+
+  // ── Public: Historical re-evaluation (async) ──────────────
+
+  /**
+   * Re-evaluate pricing for all unlocked, non-overridden rows whose
+   * task_date falls within the affected version's range.
+   *
+   * Call this after a price version is added or backdated.  The function:
+   *   1. Queries DuckDB for affected rows (SQL — skips locked + overridden)
+   *   2. For each row, recalculates new_price, new_total_price, lmp_portion,
+   *      contractor_portion using the in-memory cache
+   *   3. Upserts the updated rows back to DuckDB
+   *   4. Returns { updated: N, skippedLocked: N, skippedOverride: N }
+   *
+   * versionEffectiveDate — "YYYY-MM-DD" string of the version that was added
+   *   or edited.  Only rows at or after this date are re-evaluated.
+   *   Pass null to re-evaluate all unlocked rows regardless of task_date.
+   *
+   * Locked rows and manually overridden rows are NEVER touched — the SQL
+   * WHERE clause in reevaluatePricingRows() enforces this.
+   *
+   * Returns a Promise.
+   */
+  function reevaluateRows(versionEffectiveDate) {
+    if (typeof Db === 'undefined' || !Db.reevaluatePricingRows) {
+      return Promise.resolve({ updated: 0, error: 'Db not available' });
+    }
+
+    return Db.reevaluatePricingRows(versionEffectiveDate).then(function (affectedRows) {
+      if (!affectedRows.length) {
+        console.log('[pricing.js] reevaluateRows — no rows to update');
+        return { updated: 0 };
+      }
+
+      console.log('[pricing.js] reevaluateRows — evaluating', affectedRows.length, 'rows');
+
+      var updates = [];
+      var skipped = 0;
+
+      affectedRows.forEach(function (row) {
+        var lineItem = String(row.line_item || '').trim();
+        var taskDate = String(row.task_date || '').trim();
+
+        var expectedPrice = lookupPrice(lineItem, taskDate);
+        if (expectedPrice === null) {
+          skipped++;
+          return;  // Line item not in price list — cannot recalculate
+        }
+
+        // Recalculate absolute quantity (actual_qty × distance multiplier)
+        var actualQty  = parseFloat(row.actual_quantity) || 0;
+        var distMult   = getDistanceMultiplier(row.distance);
+        var absQty     = actualQty * distMult;
+
+        var totals = calculateTotals(expectedPrice, absQty, row.contractor);
+
+        updates.push(Object.assign({}, row, {
+          new_price:          expectedPrice,
+          absolute_quantity:  absQty,
+          new_total_price:    totals.newTotalPrice,
+          lmp_portion:        totals.lmpPortion,
+          contractor_portion: totals.contractorPortion,
+          _pending_sync:      true   // Mark for write-back to Apps Script
+        }));
+      });
+
+      // Upsert all updated rows into DuckDB
+      return Db.loadAllRows(updates).then(function () {
+        console.log('[pricing.js] reevaluateRows — updated', updates.length,
+          'rows; skipped', skipped, '(no price list entry)');
+        return {
+          updated:  updates.length,
+          skipped:  skipped
+        };
+      });
+    });
+  }
+
+  // ── Public: All distance multipliers ─────────────────────
+
+  /**
+   * Return all distance multiplier entries as [{ range, multiplier }].
+   * Sorted by multiplier ascending.
+   */
+  function getAllDistanceMults() {
+    return _distMults
+      .slice()
+      .sort(function (a, b) { return a.multiplier - b.multiplier; })
+      .map(function (d) { return { range: d.range, multiplier: d.multiplier }; });
   }
 
   // ── Internal: Date parsing ────────────────────────────────
@@ -353,25 +451,11 @@ var Pricing = (function () {
       return new Date(parseInt(m[1], 10), parseInt(m[2], 10) - 1, parseInt(m[3], 10));
     }
 
-    // Fallback
     var d = new Date(s);
     return isNaN(d.getTime()) ? null : d;
   }
 
   // ── Expose ────────────────────────────────────────────────
-
-  /**
-   * Return all distance multiplier entries as
-   * [{ range, multiplier }] — range is the original display string
-   * (e.g. "100Km - 400Km") suitable for writing back to the sheet.
-   * Sorted by multiplier ascending so callers can iterate smallest → largest.
-   */
-  function getAllDistanceMults() {
-    return _distMults
-      .slice()
-      .sort(function (a, b) { return a.multiplier - b.multiplier; })
-      .map(function (d) { return { range: d.range, multiplier: d.multiplier }; });
-  }
 
   return {
     init:                   init,
@@ -382,7 +466,8 @@ var Pricing = (function () {
     getDistanceMultiplier:  getDistanceMultiplier,
     getAllDistanceMults:     getAllDistanceMults,
     calculateTotals:        calculateTotals,
-    getIndicator:           getIndicator
+    getIndicator:           getIndicator,
+    reevaluateRows:         reevaluateRows
   };
 
 }());

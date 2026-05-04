@@ -22,7 +22,7 @@
 //   Backup.now(callback)     — manual backup from toolbar button
 //
 // Requires:
-//   js/offline.js  — Offline.getAllRows(callback)
+//   js/db.js       — Db.query() for reading rows from DuckDB
 //   js/sheets.js   — Sheets.getDeletedRows(callback) [manager only]
 //
 // ⚠ Browser support: Chrome and Edge only.
@@ -358,19 +358,44 @@ var Backup = (function () {
 
   // ── Backup payload builder ────────────────────────────────
   //
-  // Reads rows from IndexedDB — already role-filtered for coordinator.
+  // Reads rows from DuckDB — role-filtered for coordinator by the SQL WHERE
+  // clause that grid.js uses (coordinator only sees their own rows in DuckDB).
   // Manager additionally fetches deleted records from the server (online only).
 
   function _buildPayload(callback) {
     var ts = new Date().toISOString();
 
-    Offline.getAllRows(function (rows) {
+    if (typeof Db === 'undefined') {
+      callback(_serialize({
+        exported_at: ts, role: _role, name: _name,
+        row_count: 0, rows: [], error: 'DuckDB not initialised'
+      }));
+      return;
+    }
+
+    // Coordinator: only their own rows (DuckDB holds the filtered set already).
+    // Invoicing / Manager: all non-deleted rows.
+    var sql = _role === 'coordinator'
+      ? "SELECT * FROM rows WHERE _is_deleted = false AND coordinator_name = '" +
+          (_name || '').replace(/'/g, "''") + "'"
+      : 'SELECT * FROM rows WHERE _is_deleted = false';
+
+    Db.query(sql).then(function (rows) {
+      // Strip DuckDB system columns — backup file should be clean business data
+      var cleanRows = rows.map(function (row) {
+        var clean = {};
+        Object.keys(row).forEach(function (k) {
+          if (k.charAt(0) !== '_') clean[k] = row[k];
+        });
+        return clean;
+      });
+
       var payload = {
         exported_at: ts,
         role:        _role,
         name:        _name,
-        row_count:   rows.length,
-        rows:        rows
+        row_count:   cleanRows.length,
+        rows:        cleanRows
       };
 
       if (_role === 'manager' && navigator.onLine &&
@@ -385,6 +410,13 @@ var Backup = (function () {
       } else {
         callback(_serialize(payload));
       }
+
+    }).catch(function (e) {
+      console.warn('[backup.js] DuckDB read failed:', e.message || e);
+      callback(_serialize({
+        exported_at: ts, role: _role, name: _name,
+        row_count: 0, rows: [], error: String(e.message || e)
+      }));
     });
   }
 

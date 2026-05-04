@@ -11,11 +11,11 @@
 //   - Stub for conflict count (implemented in Session 7)
 //
 // Public API:
-//   Sync.init()                       — load pending count from DuckDB
+//   Sync.init()                       — load pending + conflict counts from DuckDB
 //   Sync.queueSave(rowData, cb)       — called by grid.js _saveRow()
 //   Sync.getLastSyncTime()            — returns epoch-ms (synchronous)
 //   Sync.setLastSyncTime(ts)          — persist to localStorage + DuckDB
-//   Sync.setServerConflictCount(n)    — stub (Session 7)
+//   Sync.setServerConflictCount(n)    — reconcile conflict badge from heartbeat
 //   Sync.flush()                      — drain queue (called on reconnect)
 //
 // Replaces:
@@ -39,6 +39,7 @@ var Sync = (function () {
   var _online        = navigator.onLine;
   var _flushing      = false;
   var _pendingCount  = 0;
+  var _conflictCount = 0;    // unresolved conflicts — drives the manager badge
   var _lastSyncTime  = 0;    // epoch-ms, memory cache for synchronous reads
   var _clearTimer    = null;
   var _flushTimer    = null;
@@ -58,6 +59,11 @@ var Sync = (function () {
       _pendingCount = Number((rows[0] && rows[0].n) || 0);
       _updateIndicator();
       if (_pendingCount > 0 && _online) _triggerFlush();
+
+      // Restore conflict badge from DuckDB (survives page reload)
+      _conflictCount = await Db.countUnresolvedConflicts();
+      _updateConflictBadge(_conflictCount);
+
     } catch (e) {
       // DuckDB not ready yet — indicator stays blank, flush triggered later
     }
@@ -148,6 +154,11 @@ var Sync = (function () {
 
           if (result.success) {
             await _onSuccess(entry, rowData, result);
+          } else if (result.conflict) {
+            // Concurrent edit collision: server detected our write would
+            // overwrite someone else's newer change.  Store locally for
+            // manager resolution; remove from queue so we don't retry.
+            await _onConflict(entry, rowData, result);
           } else if (_isNetworkError(result.error) || !navigator.onLine) {
             // True offline — stop and wait for 'online' event
             _online = false;
@@ -232,6 +243,37 @@ var Sync = (function () {
     _updateIndicator();
   }
 
+  // Handle a conflict response from Apps Script:
+  //   - Store the conflict record in DuckDB
+  //   - Remove from pending_queue (no point retrying — needs human resolution)
+  //   - Update the manager badge
+  async function _onConflict(entry, rowData, result) {
+    var serverRow = result.serverRow || result.server_row || null;
+
+    try {
+      await Db.storeConflict(
+        entry.row_id,
+        JSON.stringify(rowData),
+        JSON.stringify(serverRow || {}),
+        result.conflictSheetRow != null ? result.conflictSheetRow : null,
+        result.rowIndex         != null ? result.rowIndex         : null
+      );
+    } catch (e) {
+      console.warn('[Sync] could not store conflict in DuckDB:', e.message || e);
+    }
+
+    // Remove from queue — human resolution required, not retry logic
+    await Db.dequeuePending(entry.row_id);
+    _pendingCount = Math.max(0, _pendingCount - 1);
+
+    _conflictCount++;
+    _updateConflictBadge(_conflictCount);
+    _updateIndicator();
+
+    console.warn('[Sync] conflict stored — row_id:', entry.row_id,
+      '| conflict_sheet_row:', result.conflictSheetRow);
+  }
+
   // ══════════════════════════════════════════════════════════
   // SYNC TIME
   // ══════════════════════════════════════════════════════════
@@ -265,12 +307,82 @@ var Sync = (function () {
   }
 
   // ══════════════════════════════════════════════════════════
-  // PUBLIC: setServerConflictCount  (stub — Session 7)
+  // CONFLICT COUNT + BADGE
   // ══════════════════════════════════════════════════════════
 
+  /**
+   * Called by sheets.js _heartbeatTick() with the server's authoritative
+   * unresolved conflict count.  Reconciles the local count so the badge
+   * is accurate even after a manager resolves a conflict on another device.
+   *
+   * Also called with n=0 by delete.js after the last conflict is resolved
+   * so the badge disappears immediately without waiting for the next heartbeat.
+   */
   function setServerConflictCount(n) {
-    // Conflict resolution panel implemented in Session 7
-    void n;
+    var count = Number(n) || 0;
+    if (count === _conflictCount) return; // no change — skip DOM update
+    _conflictCount = count;
+    _updateConflictBadge(_conflictCount);
+  }
+
+  /**
+   * Show or hide the conflict count badge on the #tb-manager button.
+   * The badge is a <span> appended as the button's last child.
+   * It is created on demand and reused on subsequent calls.
+   */
+  function _updateConflictBadge(n) {
+    var btn = document.getElementById('tb-manager');
+    if (!btn) return;
+
+    var badge = btn.querySelector('.conflict-count-badge');
+
+    if (n <= 0) {
+      if (badge) badge.remove();
+      btn.classList.remove('has-conflicts');
+      return;
+    }
+
+    if (!badge) {
+      badge = document.createElement('span');
+      badge.className = 'conflict-count-badge';
+      btn.appendChild(badge);
+      _injectBadgeStyles();
+    }
+
+    badge.textContent = String(n);
+    btn.classList.add('has-conflicts');
+  }
+
+  function _injectBadgeStyles() {
+    if (document.getElementById('conflict-badge-styles')) return;
+    var s = document.createElement('style');
+    s.id = 'conflict-badge-styles';
+    s.textContent = [
+      '.conflict-count-badge {',
+        'display: inline-flex;',
+        'align-items: center;',
+        'justify-content: center;',
+        'min-width: 16px;',
+        'height: 16px;',
+        'padding: 0 4px;',
+        'margin-left: 6px;',
+        'background: var(--color-conflict, #c8800a);',
+        'color: #fff;',
+        'font-family: var(--font-mono);',
+        'font-size: 9px;',
+        'font-weight: 500;',
+        'letter-spacing: 0;',
+        'border-radius: 2px;',
+        'vertical-align: middle;',
+        'line-height: 1;',
+        'flex-shrink: 0;',
+      '}',
+      '#tb-manager.has-conflicts {',
+        'border-color: rgba(200, 128, 10, 0.55);',
+        'color: var(--color-conflict, #c8800a);',
+      '}',
+    ].join('\n');
+    document.head.appendChild(s);
   }
 
   // ══════════════════════════════════════════════════════════

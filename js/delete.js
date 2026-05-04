@@ -174,6 +174,15 @@ var Delete = (function () {
 
         '<div class="mgr-panel-body">',
 
+          // ── Conflicts ───────────────────────────────────
+          '<div class="mgr-section" id="mgr-conflicts-section">',
+            '<div class="mgr-section-heading mgr-conflicts-heading">',
+              'Conflicts ',
+              '<span class="mgr-conflict-count" id="mgr-conflict-count" hidden></span>',
+            '</div>',
+            '<div id="mgr-conflicts-content" class="mgr-loading">Loading…</div>',
+          '</div>',
+
           // ── Deleted Records ─────────────────────────────
           '<div class="mgr-section">',
             '<div class="mgr-section-heading">Deleted Records</div>',
@@ -248,6 +257,7 @@ var Delete = (function () {
     ].join('');
 
     _wireMgrPanelEvents();
+    _loadConflicts();
     _loadDeletedRecords();
   }
 
@@ -288,6 +298,273 @@ var Delete = (function () {
     if (goBtn) {
       goBtn.addEventListener('click', _performClearAll);
     }
+  }
+
+  // ── Load and render conflicts ─────────────────────────────
+
+  function _loadConflicts() {
+    var content = document.getElementById('mgr-conflicts-content');
+    if (!content) return;
+
+    if (typeof Db === 'undefined' || !Db.getUnresolvedConflicts) {
+      content.innerHTML = '<div class="mgr-empty">Conflict tracking not available.</div>';
+      return;
+    }
+
+    Db.getUnresolvedConflicts().then(function (conflicts) {
+      // Update the count badge in the section heading
+      var countEl = document.getElementById('mgr-conflict-count');
+      if (countEl) {
+        if (conflicts.length > 0) {
+          countEl.textContent = String(conflicts.length);
+          countEl.removeAttribute('hidden');
+        } else {
+          countEl.setAttribute('hidden', '');
+        }
+      }
+
+      if (!conflicts.length) {
+        content.innerHTML = '<div class="mgr-empty">No conflicts. All edits synced cleanly.</div>';
+        return;
+      }
+
+      var html = ['<div class="mgr-conflict-list">'];
+
+      conflicts.forEach(function (conflict) {
+        var localRow, serverRow;
+        try { localRow  = JSON.parse(conflict.local_payload);  } catch (_) { localRow  = {}; }
+        try { serverRow = JSON.parse(conflict.server_payload); } catch (_) { serverRow = {}; }
+
+        var rowLabel = _esc(localRow.id || localRow.job_code || conflict.row_id || 'Unknown');
+        var detectedAt = conflict.detected_at
+          ? new Date(conflict.detected_at).toLocaleString('en-GB', {
+              day:'2-digit', month:'short', year:'numeric',
+              hour:'2-digit', minute:'2-digit'
+            })
+          : '';
+
+        // Find fields that differ (skip system fields and identical values)
+        var diffFields = _getDiffFields(localRow, serverRow);
+
+        html.push(
+          '<div class="mgr-conflict-card" data-row-id="' + _esc(conflict.row_id) + '"',
+            ' data-conflict-sheet-row="' + _esc(String(conflict.conflict_sheet_row || '')) + '"',
+            ' data-live-row-index="'     + _esc(String(conflict.live_row_index || ''))     + '">',
+
+          '<div class="mgr-conflict-card-header">',
+            '<span class="mgr-conflict-row-id">⚠︎ Row: ' + rowLabel + '</span>',
+            '<span class="mgr-conflict-detected">Detected: ' + _esc(detectedAt) + '</span>',
+          '</div>',
+
+          '<div class="mgr-conflict-cols">',
+            '<div class="mgr-conflict-col mgr-conflict-col--local">',
+              '<div class="mgr-conflict-col-header">Your version (offline)</div>',
+              _renderConflictFields(diffFields, localRow, 'local'),
+            '</div>',
+            '<div class="mgr-conflict-col mgr-conflict-col--server">',
+              '<div class="mgr-conflict-col-header">Server version (other user)</div>',
+              _renderConflictFields(diffFields, serverRow, 'server'),
+            '</div>',
+          '</div>',
+
+          '<div class="mgr-conflict-actions">',
+            '<button class="mgr-keep-local-btn"',
+              ' data-row-id="' + _esc(conflict.row_id) + '">',
+              'Keep Mine',
+            '</button>',
+            '<button class="mgr-keep-server-btn"',
+              ' data-row-id="' + _esc(conflict.row_id) + '">',
+              'Keep Server Version',
+            '</button>',
+          '</div>',
+
+          '</div>'  // /.mgr-conflict-card
+        );
+      });
+
+      html.push('</div>');
+      content.innerHTML = html.join('');
+
+      // Wire resolution buttons
+      content.querySelectorAll('.mgr-keep-local-btn').forEach(function (btn) {
+        btn.addEventListener('click', function () {
+          var rowId = btn.getAttribute('data-row-id');
+          _resolveConflict(rowId, 'local', btn);
+        });
+      });
+
+      content.querySelectorAll('.mgr-keep-server-btn').forEach(function (btn) {
+        btn.addEventListener('click', function () {
+          var rowId = btn.getAttribute('data-row-id');
+          _resolveConflict(rowId, 'server', btn);
+        });
+      });
+
+    }).catch(function (e) {
+      var content2 = document.getElementById('mgr-conflicts-content');
+      if (content2) content2.innerHTML = '<div class="mgr-error">Could not load conflicts: ' + _esc(String(e.message || e)) + '</div>';
+    });
+  }
+
+  // Return an array of { key, label } for fields that differ between localRow and serverRow.
+  // System columns (prefixed _) and unset fields on both sides are excluded.
+  var _FIELD_LABELS = {
+    id: 'ID #', job_code: 'Job Code', tx_rf: 'TX/RF', vendor: 'Vendor',
+    physical_site_id: 'Physical Site ID', logical_site_id: 'Logical Site ID',
+    site_option: 'Site Option', facing: 'Facing', region: 'Region',
+    sub_region: 'Sub Region', distance: 'Distance',
+    absolute_quantity: 'Abs Qty', actual_quantity: 'Actual Qty',
+    general_stream: 'General Stream', task_name: 'Task Name',
+    contractor: 'Contractor', engineer_name: 'Engineer',
+    line_item: 'Line Item', new_price: 'New Price',
+    new_total_price: 'New Total Price', comments: 'Comments',
+    status: 'Status', task_date: 'Task Date',
+    vf_task_owner: 'VF Task Owner', prq: 'PRQ',
+    coordinator_name: 'Coordinator',
+    acceptance_status: 'Acceptance Status', fac_date: 'FAC Date',
+    certificate_num: 'Certificate #', acceptance_week: 'Acceptance Week',
+    tsr_sub: 'TSR Sub', po_status: 'PO Status', po_number: 'PO Number',
+    vf_invoice_num: 'VF Invoice #', first_receiving_date: 'First Receiving Date',
+    lmp_portion: 'LMP Portion', contractor_portion: 'Contractor Portion',
+    sent_to_cost_control: 'Sent to CC', received_from_cc: 'Received from CC',
+    contractor_invoice_num: 'Contractor Invoice #',
+    vf_invoice_submission_date: 'VF Invoice Sub Date',
+    cash_received_date: 'Cash Received Date'
+  };
+
+  function _getDiffFields(local, server) {
+    var seen = {};
+    var diffs = [];
+    var keys = Object.keys(_FIELD_LABELS);
+    keys.forEach(function (key) {
+      var lv = String(local[key]  == null ? '' : local[key]);
+      var sv = String(server[key] == null ? '' : server[key]);
+      if (lv === sv) return;          // identical — no diff
+      if (!lv && !sv) return;         // both empty — skip
+      diffs.push({ key: key, label: _FIELD_LABELS[key] || key });
+    });
+    return diffs;
+  }
+
+  function _renderConflictFields(diffFields, rowData, side) {
+    if (!diffFields.length) {
+      return '<div class="mgr-conflict-nodiff">No field differences found.</div>';
+    }
+    var rows = diffFields.map(function (f) {
+      var val = rowData[f.key];
+      var display = (val == null || val === '') ? '—' : String(val);
+      return '<div class="mgr-conflict-field">' +
+        '<span class="mgr-conflict-field-label">' + _esc(f.label) + '</span>' +
+        '<span class="mgr-conflict-field-value">' + _esc(display) + '</span>' +
+        '</div>';
+    });
+    return rows.join('');
+  }
+
+  // Resolve a conflict — called by Keep Mine / Keep Server buttons.
+  function _resolveConflict(rowId, keepVersion, clickedBtn) {
+    var card = clickedBtn.closest('.mgr-conflict-card');
+    if (!card) return;
+
+    // Disable both buttons in this card
+    card.querySelectorAll('button').forEach(function (b) { b.disabled = true; });
+    clickedBtn.textContent = 'Resolving…';
+
+    Db.getUnresolvedConflicts().then(function (conflicts) {
+      var conflict = null;
+      for (var i = 0; i < conflicts.length; i++) {
+        if (conflicts[i].row_id === rowId) { conflict = conflicts[i]; break; }
+      }
+      if (!conflict) {
+        _toast('Conflict not found — may have been resolved already.', 'error');
+        _loadConflicts();
+        return;
+      }
+
+      var localRow, serverRow;
+      try { localRow  = JSON.parse(conflict.local_payload);  } catch (_) { localRow  = {}; }
+      try { serverRow = JSON.parse(conflict.server_payload); } catch (_) { serverRow = {}; }
+
+      var conflictSheetRow = conflict.conflict_sheet_row;
+      var liveRowIndex     = conflict.live_row_index;
+
+      if (keepVersion === 'local') {
+        // Write our local version to Apps Script, then resolve locally.
+        // Pass conflictSheetRow so the server knows to delete the conflict copy.
+        Sheets.resolveConflict(
+          conflictSheetRow, liveRowIndex, 'offline', localRow,
+          function (result) {
+            if (!result.success) {
+              card.querySelectorAll('button').forEach(function (b) { b.disabled = false; });
+              clickedBtn.textContent = 'Keep Mine';
+              _toast(result.error || 'Could not resolve. Try again.', 'error');
+              return;
+            }
+            // Local DuckDB already has our version — just clear pending_sync flag
+            var updated = Object.assign({}, localRow, { _pending_sync: false });
+            Db.upsertRow(updated).catch(function () {});
+            Db.markConflictResolved(rowId).then(function () {
+              _afterResolve(card, rowId, 'Your version saved.');
+            });
+          }
+        );
+      } else {
+        // Keep the server's version — update local DuckDB and the grid.
+        // No need to write to Apps Script; server already has this version.
+        Sheets.resolveConflict(
+          conflictSheetRow, liveRowIndex, 'online', null,
+          function (result) {
+            if (!result.success) {
+              card.querySelectorAll('button').forEach(function (b) { b.disabled = false; });
+              clickedBtn.textContent = 'Keep Server Version';
+              _toast(result.error || 'Could not resolve. Try again.', 'error');
+              return;
+            }
+            // Overwrite local row with server data
+            var serverUpdated = Object.assign({}, serverRow, { _pending_sync: false, _conflict: false });
+            Db.upsertRow(serverUpdated).catch(function () {});
+            if (typeof Grid !== 'undefined' && Grid.applyDelta) {
+              Grid.applyDelta([serverUpdated]);
+            }
+            Db.markConflictResolved(rowId).then(function () {
+              _afterResolve(card, rowId, 'Server version kept.');
+            });
+          }
+        );
+      }
+    }).catch(function (e) {
+      card.querySelectorAll('button').forEach(function (b) { b.disabled = false; });
+      clickedBtn.textContent = keepVersion === 'local' ? 'Keep Mine' : 'Keep Server Version';
+      _toast('Error: ' + (e.message || e), 'error');
+    });
+  }
+
+  function _afterResolve(card, rowId, toastMsg) {
+    // Update the section badge count
+    Db.countUnresolvedConflicts().then(function (n) {
+      if (typeof Sync !== 'undefined' && Sync.setServerConflictCount) {
+        Sync.setServerConflictCount(n);
+      }
+      var countEl = document.getElementById('mgr-conflict-count');
+      if (countEl) {
+        if (n > 0) { countEl.textContent = String(n); }
+        else { countEl.setAttribute('hidden', ''); }
+      }
+    }).catch(function () {});
+
+    // Fade out the resolved card
+    card.style.transition = 'opacity 0.2s';
+    card.style.opacity = '0';
+    setTimeout(function () {
+      card.remove();
+      var list = document.querySelector('#mgr-conflicts-content .mgr-conflict-list');
+      if (list && !list.querySelector('.mgr-conflict-card')) {
+        var content = document.getElementById('mgr-conflicts-content');
+        if (content) content.innerHTML = '<div class="mgr-empty">No conflicts. All edits synced cleanly.</div>';
+      }
+    }, 200);
+
+    _toast(toastMsg, 'success');
   }
 
   // ── Load deleted records ──────────────────────────────────
@@ -1001,6 +1278,171 @@ var Delete = (function () {
         'justify-content: flex-end;',
         'gap: 10px;',
       '}',
+
+      // ── Conflict section ──────────────────────────────────
+      '.mgr-conflicts-heading {',
+        'display: flex;',
+        'align-items: center;',
+        'gap: 8px;',
+      '}',
+
+      '.mgr-conflict-count {',
+        'display: inline-flex;',
+        'align-items: center;',
+        'justify-content: center;',
+        'min-width: 18px;',
+        'height: 18px;',
+        'padding: 0 5px;',
+        'background: var(--color-conflict, #c8800a);',
+        'color: #fff;',
+        'font-family: var(--font-mono);',
+        'font-size: 10px;',
+        'font-weight: 500;',
+        'letter-spacing: 0;',
+        'border-radius: 2px;',
+      '}',
+
+      '.mgr-conflict-list {',
+        'display: flex;',
+        'flex-direction: column;',
+        'gap: 12px;',
+      '}',
+
+      '.mgr-conflict-card {',
+        'border: 1px solid rgba(200,128,10,0.35);',
+        'background: rgba(200,128,10,0.04);',
+      '}',
+
+      '.mgr-conflict-card-header {',
+        'display: flex;',
+        'justify-content: space-between;',
+        'align-items: center;',
+        'padding: 8px 12px;',
+        'background: rgba(200,128,10,0.08);',
+        'border-bottom: 1px solid rgba(200,128,10,0.2);',
+        'gap: 16px;',
+      '}',
+
+      '.mgr-conflict-row-id {',
+        'font-family: var(--font-mono);',
+        'font-size: 11px;',
+        'color: var(--color-conflict, #c8800a);',
+        'font-weight: 500;',
+        'white-space: nowrap;',
+      '}',
+
+      '.mgr-conflict-detected {',
+        'font-family: var(--font-mono);',
+        'font-size: 10px;',
+        'color: var(--text-secondary);',
+        'letter-spacing: 0.06em;',
+        'white-space: nowrap;',
+      '}',
+
+      '.mgr-conflict-cols {',
+        'display: grid;',
+        'grid-template-columns: 1fr 1fr;',
+        'border-bottom: 1px solid rgba(200,128,10,0.15);',
+      '}',
+
+      '.mgr-conflict-col {',
+        'padding: 12px;',
+      '}',
+
+      '.mgr-conflict-col + .mgr-conflict-col {',
+        'border-left: 1px solid rgba(200,128,10,0.2);',
+      '}',
+
+      '.mgr-conflict-col-header {',
+        'font-family: var(--font-display);',
+        'font-weight: 700;',
+        'font-size: 9px;',
+        'letter-spacing: 0.16em;',
+        'text-transform: uppercase;',
+        'margin-bottom: 8px;',
+      '}',
+
+      '.mgr-conflict-col--local .mgr-conflict-col-header { color: var(--accent); }',
+      '.mgr-conflict-col--server .mgr-conflict-col-header { color: var(--text-secondary); }',
+
+      '.mgr-conflict-field {',
+        'display: flex;',
+        'justify-content: space-between;',
+        'align-items: baseline;',
+        'gap: 12px;',
+        'padding: 3px 0;',
+        'border-bottom: 1px solid var(--border);',
+        'font-size: 12px;',
+      '}',
+      '.mgr-conflict-field:last-child { border-bottom: none; }',
+
+      '.mgr-conflict-field-label {',
+        'font-family: var(--font-display);',
+        'font-weight: 600;',
+        'font-size: 10px;',
+        'letter-spacing: 0.06em;',
+        'text-transform: uppercase;',
+        'color: var(--text-secondary);',
+        'white-space: nowrap;',
+        'flex-shrink: 0;',
+      '}',
+
+      '.mgr-conflict-field-value {',
+        'font-family: var(--font-mono);',
+        'font-size: 11px;',
+        'color: var(--text-primary);',
+        'text-align: right;',
+        'word-break: break-word;',
+      '}',
+
+      '.mgr-conflict-nodiff {',
+        'font-family: var(--font-body);',
+        'font-size: 12px;',
+        'color: var(--text-secondary);',
+        'font-style: italic;',
+      '}',
+
+      '.mgr-conflict-actions {',
+        'display: flex;',
+        'justify-content: flex-end;',
+        'align-items: center;',
+        'gap: 10px;',
+        'padding: 10px 12px;',
+      '}',
+
+      '.mgr-keep-local-btn {',
+        'height: 30px;',
+        'padding: 0 14px;',
+        'background: var(--accent);',
+        'border: none;',
+        'font-family: var(--font-display);',
+        'font-weight: 700;',
+        'font-size: 9px;',
+        'letter-spacing: 0.14em;',
+        'text-transform: uppercase;',
+        'color: #fff;',
+        'cursor: pointer;',
+        'transition: opacity 0.15s;',
+      '}',
+      '.mgr-keep-local-btn:hover:not(:disabled) { opacity: 0.88; }',
+      '.mgr-keep-local-btn:disabled { opacity: 0.45; cursor: not-allowed; }',
+
+      '.mgr-keep-server-btn {',
+        'height: 30px;',
+        'padding: 0 14px;',
+        'background: transparent;',
+        'border: 1px solid var(--border);',
+        'font-family: var(--font-display);',
+        'font-weight: 600;',
+        'font-size: 9px;',
+        'letter-spacing: 0.14em;',
+        'text-transform: uppercase;',
+        'color: var(--text-secondary);',
+        'cursor: pointer;',
+        'transition: background 0.15s;',
+      '}',
+      '.mgr-keep-server-btn:hover:not(:disabled) { background: var(--bg-base); }',
+      '.mgr-keep-server-btn:disabled { opacity: 0.45; cursor: not-allowed; }',
 
     ].join('\n');
     document.head.appendChild(s);

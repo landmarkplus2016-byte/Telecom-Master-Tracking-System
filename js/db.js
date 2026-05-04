@@ -94,6 +94,11 @@ var Db = (function () {
     { name: 'contractor_invoice_num',     type: 'TEXT'   },
     { name: 'vf_invoice_submission_date', type: 'TEXT'   },
     { name: 'cash_received_date',         type: 'TEXT'   },
+
+    // ── Pricing override flag ──────────────────────────────
+    // Set by Manager to freeze a row's price outside version-driven calc.
+    // When true, historical re-evaluation skips this row.
+    { name: 'price_manual_override',      type: 'BOOLEAN' },
   ];
 
   // System columns added by db.js — not present in Apps Script payloads.
@@ -259,6 +264,54 @@ var Db = (function () {
       '  action      TEXT DEFAULT \'save\',\n' +
       '  queued_at   TIMESTAMP DEFAULT CURRENT_TIMESTAMP,\n' +
       '  retry_count INTEGER DEFAULT 0\n' +
+      ')'
+    );
+
+    // ── Conflicts table ────────────────────────────────────
+    // Rows where a local offline edit collided with a concurrent server edit.
+    // conflict_sheet_row and live_row_index are returned by Apps Script on
+    // conflict detection and are needed to call resolveConflict() later.
+    await _conn.query(
+      'CREATE TABLE IF NOT EXISTS conflicts (\n' +
+      '  row_id             TEXT PRIMARY KEY,\n' +
+      '  local_payload      TEXT NOT NULL,\n' +
+      '  server_payload     TEXT NOT NULL,\n' +
+      '  conflict_sheet_row INTEGER,\n' +
+      '  live_row_index     INTEGER,\n' +
+      '  detected_at        TIMESTAMP DEFAULT CURRENT_TIMESTAMP,\n' +
+      '  resolved           BOOLEAN DEFAULT false\n' +
+      ')'
+    );
+
+    // ── Pricing tables ─────────────────────────────────────
+    // Loaded from Config tab on every startup via Db.loadPriceData().
+    // These are reference tables — cleared and reloaded each session.
+
+    // price_versions — one row per version (e.g. "2024", "2025")
+    await _conn.query(
+      'CREATE TABLE IF NOT EXISTS price_versions (\n' +
+      '  version_name   TEXT PRIMARY KEY,\n' +
+      '  effective_date DATE NOT NULL,\n' +
+      '  is_active      BOOLEAN DEFAULT true\n' +
+      ')'
+    );
+
+    // price_list — unit price per (version × line_item)
+    await _conn.query(
+      'CREATE TABLE IF NOT EXISTS price_list (\n' +
+      '  version_name TEXT NOT NULL,\n' +
+      '  line_item    TEXT NOT NULL,\n' +
+      '  unit_price   DOUBLE NOT NULL,\n' +
+      '  PRIMARY KEY (version_name, line_item)\n' +
+      ')'
+    );
+
+    // contractor_splits — LMP / Contractor percentages per contractor
+    await _conn.query(
+      'CREATE TABLE IF NOT EXISTS contractor_splits (\n' +
+      '  contractor     TEXT PRIMARY KEY,\n' +
+      '  lmp_pct        DOUBLE NOT NULL DEFAULT 100,\n' +
+      '  contractor_pct DOUBLE NOT NULL DEFAULT 0\n' +
       ')'
     );
   }
@@ -439,6 +492,9 @@ var Db = (function () {
       var n = parseFloat(v);
       return isNaN(n) ? 'NULL' : String(n);
     }
+    if (col.type === 'BOOLEAN') {
+      return (v === true || v === 'true' || v === 1) ? 'true' : 'false';
+    }
     return _sqlStr(String(v));
   }
 
@@ -571,6 +627,214 @@ var Db = (function () {
   }
 
   // ══════════════════════════════════════════════════════════
+  // CONFLICT MANAGEMENT
+  // ══════════════════════════════════════════════════════════
+
+  /**
+   * Record a sync conflict detected during flush.
+   * Overwrites any previous conflict for the same row_id (last conflict wins).
+   *
+   * rowId             — the local _row_id of the conflicting row
+   * localPayload      — JSON string of the local (offline) row data
+   * serverPayload     — JSON string of the server row returned by Apps Script
+   * conflictSheetRow  — 1-based index in the Conflicts sheet tab (from server response)
+   * liveRowIndex      — 1-based index in the Data sheet tab (from server response)
+   */
+  async function storeConflict(rowId, localPayload, serverPayload, conflictSheetRow, liveRowIndex) {
+    _assertReady();
+    await _conn.query(
+      'INSERT INTO conflicts (row_id, local_payload, server_payload, conflict_sheet_row, live_row_index, resolved) ' +
+      'VALUES (' +
+        _sqlStr(String(rowId)) + ', ' +
+        _sqlStr(String(localPayload)) + ', ' +
+        _sqlStr(String(serverPayload)) + ', ' +
+        (conflictSheetRow != null ? String(Number(conflictSheetRow)) : 'NULL') + ', ' +
+        (liveRowIndex     != null ? String(Number(liveRowIndex))     : 'NULL') + ', ' +
+        'false) ' +
+      'ON CONFLICT (row_id) DO UPDATE SET ' +
+        'local_payload      = excluded.local_payload, ' +
+        'server_payload     = excluded.server_payload, ' +
+        'conflict_sheet_row = excluded.conflict_sheet_row, ' +
+        'live_row_index     = excluded.live_row_index, ' +
+        'detected_at        = CURRENT_TIMESTAMP, ' +
+        'resolved           = false'
+    );
+    console.log('[Db] storeConflict() — row_id:', rowId);
+  }
+
+  /**
+   * Return all unresolved conflicts as plain objects.
+   * local_payload and server_payload are returned as strings — callers
+   * must JSON.parse() them to get the row data objects.
+   */
+  async function getUnresolvedConflicts() {
+    _assertReady();
+    return query('SELECT * FROM conflicts WHERE resolved = false ORDER BY detected_at ASC');
+  }
+
+  /**
+   * Mark a conflict as resolved.  The record is kept in the table for
+   * audit purposes but will no longer appear in getUnresolvedConflicts().
+   */
+  async function markConflictResolved(rowId) {
+    _assertReady();
+    await _conn.query(
+      'UPDATE conflicts SET resolved = true WHERE row_id = ' + _sqlStr(String(rowId))
+    );
+    console.log('[Db] markConflictResolved() — row_id:', rowId);
+  }
+
+  /**
+   * Count unresolved conflicts (fast — used for badge updates).
+   * Returns a number.
+   */
+  async function countUnresolvedConflicts() {
+    _assertReady();
+    var rows = await query('SELECT COUNT(*) AS n FROM conflicts WHERE resolved = false');
+    return Number((rows[0] && rows[0].n) || 0);
+  }
+
+  // ══════════════════════════════════════════════════════════
+  // PRICING TABLES
+  // ══════════════════════════════════════════════════════════
+
+  /**
+   * Clear and reload the three pricing reference tables from the
+   * Config tab response.  Called by pricing.js init() on every startup.
+   *
+   * data — { versions, priceList, contractorSplits }
+   *   versions         [{ version, effectiveDate }]
+   *   priceList        [{ version, lineItem, unitPrice }]
+   *   contractorSplits [{ contractor, lmpPct, contractorPct }]
+   */
+  async function loadPriceData(data) {
+    _assertReady();
+    if (!data) return;
+
+    await _conn.query('BEGIN');
+    try {
+      // Clear existing reference data — these are fully reloaded each session
+      await _conn.query('DELETE FROM price_list');
+      await _conn.query('DELETE FROM price_versions');
+      await _conn.query('DELETE FROM contractor_splits');
+
+      // Load versions
+      var versions = data.versions || [];
+      for (var i = 0; i < versions.length; i++) {
+        var v = versions[i];
+        if (!v.version || !v.effectiveDate) continue;
+        var isoDate = _toIsoDate(v.effectiveDate);
+        if (!isoDate) continue;
+        await _conn.query(
+          'INSERT INTO price_versions (version_name, effective_date, is_active) VALUES (' +
+          _sqlStr(String(v.version).trim()) + ', ' +
+          _sqlStr(isoDate) + ', true) ' +
+          'ON CONFLICT (version_name) DO UPDATE SET effective_date = excluded.effective_date, is_active = excluded.is_active'
+        );
+      }
+
+      // Load price list
+      var priceList = data.priceList || [];
+      for (var j = 0; j < priceList.length; j++) {
+        var p = priceList[j];
+        if (!p.version || !p.lineItem) continue;
+        var normalised = String(p.lineItem).trim().replace(/\s+/g, ' ');
+        var price = parseFloat(p.unitPrice) || 0;
+        await _conn.query(
+          'INSERT INTO price_list (version_name, line_item, unit_price) VALUES (' +
+          _sqlStr(String(p.version).trim()) + ', ' +
+          _sqlStr(normalised) + ', ' +
+          String(price) + ') ' +
+          'ON CONFLICT (version_name, line_item) DO UPDATE SET unit_price = excluded.unit_price'
+        );
+      }
+
+      // Load contractor splits (In-House always 100/0 — enforced in pricing.js)
+      var splits = data.contractorSplits || [];
+      for (var k = 0; k < splits.length; k++) {
+        var s = splits[k];
+        if (!s.contractor) continue;
+        var lmp = parseFloat(s.lmpPct)        || 0;
+        var con = parseFloat(s.contractorPct) || 0;
+        await _conn.query(
+          'INSERT INTO contractor_splits (contractor, lmp_pct, contractor_pct) VALUES (' +
+          _sqlStr(String(s.contractor).trim()) + ', ' +
+          String(lmp) + ', ' + String(con) + ') ' +
+          'ON CONFLICT (contractor) DO UPDATE SET lmp_pct = excluded.lmp_pct, contractor_pct = excluded.contractor_pct'
+        );
+      }
+
+      await _conn.query('COMMIT');
+      console.log('[Db] loadPriceData() — versions:', versions.length,
+        '| price entries:', priceList.length, '| splits:', splits.length);
+
+    } catch (e) {
+      await _conn.query('ROLLBACK');
+      throw e;
+    }
+  }
+
+  /**
+   * Find all rows that must be re-evaluated after a price version is added
+   * or edited.  Returns the full row objects so pricing.js can recalculate
+   * and then call upsertRow() on each.
+   *
+   * Exclusions (as per CLAUDE.md):
+   *   - Locked rows (_is_locked = true) — prices are frozen at lock time
+   *   - Manually overridden rows (price_manual_override = true)
+   *   - Rows with no task_date (they use the current active version, re-evaluated on load)
+   *
+   * versionEffectiveDate — ISO date string 'YYYY-MM-DD' of the added/edited version.
+   *   Only rows whose task_date falls on or after this date are affected.
+   *   Pass null to re-evaluate ALL unlocked, non-overridden rows.
+   */
+  async function reevaluatePricingRows(versionEffectiveDate) {
+    _assertReady();
+
+    // Always skip locked and manually overridden rows.
+    // When a specific version effective date is provided, only rows whose
+    // task_date falls on or after that date are affected.
+    var sql =
+      'SELECT * FROM rows ' +
+      'WHERE _is_locked = false ' +
+      'AND (price_manual_override IS NULL OR price_manual_override = false) ' +
+      'AND _is_deleted = false' +
+      (versionEffectiveDate
+        ? ' AND task_date IS NOT NULL AND task_date != \'\''
+        : '');
+
+    return query(sql);
+  }
+
+  // ── Date helpers for pricing tables ───────────────────────
+
+  // Convert "DD-MMM-YYYY" or Date → ISO "YYYY-MM-DD" for DuckDB DATE columns.
+  function _toIsoDate(val) {
+    if (!val) return null;
+    if (val instanceof Date) {
+      if (isNaN(val.getTime())) return null;
+      return val.getFullYear() + '-' +
+        String(val.getMonth() + 1).padStart(2, '0') + '-' +
+        String(val.getDate()).padStart(2, '0');
+    }
+    var s = String(val).trim();
+    // DD-MMM-YYYY
+    var MONTHS = { jan:'01', feb:'02', mar:'03', apr:'04', may:'05', jun:'06',
+                   jul:'07', aug:'08', sep:'09', oct:'10', nov:'11', dec:'12' };
+    var m = s.match(/^(\d{1,2})-([A-Za-z]{3})-(\d{4})$/);
+    if (m) {
+      var mo = MONTHS[m[2].toLowerCase()];
+      if (mo) return m[3] + '-' + mo + '-' + String(m[1]).padStart(2, '0');
+    }
+    // YYYY-MM-DD — already correct
+    if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return s;
+    // Fallback: try Date parsing
+    var d = new Date(s);
+    if (!isNaN(d.getTime())) return _toIsoDate(d);
+    return null;
+  }
+
+  // ══════════════════════════════════════════════════════════
   // INTERNAL UTILITIES
   // ══════════════════════════════════════════════════════════
 
@@ -623,10 +887,16 @@ var Db = (function () {
     markSynced:           markSynced,
     getMeta:              getMeta,
     setMeta:              setMeta,
-    queuePending:         queuePending,
-    dequeuePending:       dequeuePending,
-    incrementRetryCount:  incrementRetryCount,
-    deleteRow:            deleteRow,
+    queuePending:          queuePending,
+    dequeuePending:        dequeuePending,
+    incrementRetryCount:   incrementRetryCount,
+    deleteRow:             deleteRow,
+    loadPriceData:            loadPriceData,
+    reevaluatePricingRows:    reevaluatePricingRows,
+    storeConflict:            storeConflict,
+    getUnresolvedConflicts:   getUnresolvedConflicts,
+    markConflictResolved:     markConflictResolved,
+    countUnresolvedConflicts: countUnresolvedConflicts,
   };
 
 }());
