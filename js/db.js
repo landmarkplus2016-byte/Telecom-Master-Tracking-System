@@ -30,11 +30,12 @@ var Db = (function () {
 
   // ── Internal state ────────────────────────────────────────
 
-  var _db    = null;    // AsyncDuckDB instance
-  var _conn  = null;    // persistent connection (one per session)
-  var _ready = false;
-  var _opfs  = false;   // true when OPFS persistence is active
-  var _duckdbLib = null; // cached module reference (avoids re-import on re-init)
+  var _db         = null;    // AsyncDuckDB instance
+  var _conn       = null;    // persistent connection (one per session)
+  var _ready      = false;
+  var _opfs       = false;   // true when OPFS persistence is active
+  var _duckdbLib  = null;    // cached module reference (avoids re-import on re-init)
+  var _initPromise = null;   // in-flight init promise — prevents concurrent double-init
 
   // ── Schema definition ─────────────────────────────────────
   //
@@ -149,7 +150,7 @@ var Db = (function () {
 
   /**
    * Load DuckDB WASM and open the database.
-   * Idempotent — safe to call multiple times.
+   * Idempotent — safe to call concurrently: all callers await the same Promise.
    *
    * Open strategy (three attempts, each with a fresh AsyncDuckDB instance):
    *   1. OPFS — persistent across page reloads
@@ -159,9 +160,23 @@ var Db = (function () {
    * A failed open() corrupts the internal DuckDB state, so each retry must
    * use a brand-new AsyncDuckDB instance + worker.
    */
-  async function init() {
-    if (_ready) return;
+  function init() {
+    if (_ready) return Promise.resolve();
 
+    // Share one in-flight promise across all concurrent callers.
+    // Without this guard, multiple callers arriving while init() is still
+    // running all see _ready===false and race into the three-pass loop,
+    // overwriting each other's _conn and causing silent failures.
+    if (_initPromise) return _initPromise;
+
+    _initPromise = _doInit().then(
+      function () { _initPromise = null; },
+      function (e) { _initPromise = null; throw e; }
+    );
+    return _initPromise;
+  }
+
+  async function _doInit() {
     var d = await _loadDuckDB();
 
     var bundles = d.getJsDelivrBundles();
