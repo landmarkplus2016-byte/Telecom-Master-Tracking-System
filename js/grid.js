@@ -869,6 +869,19 @@ var Grid = (function () {
     if (!rowNode || !rowNode.data) return;
     var rowData = Object.assign({}, rowNode.data);
 
+    // Restore _row_index from _row_id when the row was loaded from DuckDB.
+    // DuckDB does not persist _row_index (it's not in the schema), so rows
+    // coming from _startupFromCache have _row_id='row_N' but no _row_index.
+    // Without this, Code.gs sees no _row_index and appends a new row instead
+    // of updating the existing one.
+    if (!rowData._row_index && rowData._row_id) {
+      var _m = String(rowData._row_id).match(/^row_(\d+)$/);
+      if (_m) {
+        rowData._row_index       = Number(_m[1]);
+        rowNode.data._row_index  = rowData._row_index;
+      }
+    }
+
     // Coordinator auto-stamp: silently fill coordinator_name on new rows.
     // The column is hidden from coordinators so they never see it.
     if (_role === 'coordinator' && !rowData.coordinator_name) {

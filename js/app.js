@@ -91,16 +91,29 @@
       _setLoadingStatus('Initializing local database…');
 
       Db.init().then(function () {
+        // When OPFS is unavailable DuckDB falls back to in-memory.
+        // In-memory has no cached rows, so _startupFromCache would show an
+        // empty grid.  Skip the session-owner check and always do a full fetch.
+        if (!Db.isPersistent()) {
+          console.log('[app.js] DuckDB in-memory — skipping cache, doing full fetch');
+          return Db.setSessionOwner(name, role).then(function () {
+            return _doFullFetch();
+          });
+        }
+
         return Db.getSessionOwner();
 
       }).then(function (owner) {
-        var isSameUser = owner && owner.name === name;
+        // owner is undefined when the non-persistent path already ran _doFullFetch.
+        if (!owner || typeof owner !== 'object') return;
+
+        var isSameUser = owner.name === name;
 
         if (!isSameUser) {
           // Different user (or first-ever run): clear all local data and
           // do a full fetch so we never show another user's rows.
           console.log('[app.js] session owner changed (',
-            (owner ? owner.name : 'none'), '→', name, ') — clearing DuckDB');
+            owner.name, '→', name, ') — clearing DuckDB');
           return Db.clearRows()
             .then(function () { return Db.setSessionOwner(name, role); })
             .then(function () { return _doFullFetch(); });

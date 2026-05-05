@@ -887,11 +887,25 @@ var Db = (function () {
   }
 
   // ══════════════════════════════════════════════════════════
+  // ══════════════════════════════════════════════════════════
+  // PUBLIC: isPersistent
+  // ══════════════════════════════════════════════════════════
+
+  /** Returns true when DuckDB is backed by OPFS (survives page reload).
+   *  Returns false when using the in-memory fallback (data lost on reload).
+   *  app.js uses this to decide whether to trust the session-owner cache
+   *  or always do a full fetch. */
+  function isPersistent() {
+    return _opfs;
+  }
+
+  // ══════════════════════════════════════════════════════════
   // PUBLIC API
   // ══════════════════════════════════════════════════════════
 
   return {
     init:                 init,
+    isPersistent:         isPersistent,
     getSessionOwner:      getSessionOwner,
     setSessionOwner:      setSessionOwner,
     clearRows:            clearRows,
