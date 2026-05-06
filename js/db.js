@@ -217,12 +217,19 @@ var Db = (function () {
           console.log('[Db] using in-memory database');
         } else {
           if (pass === 1) {
-            // Remove the stale/corrupt OPFS file so DuckDB gets a clean slate
+            // Remove the stale/corrupt OPFS file so DuckDB gets a clean slate.
+            // Wait 400 ms first: the terminated pass-0 worker may hold an OPFS
+            // Synchronous Access Handle that is not released synchronously on
+            // terminate(). Without the delay, removeEntry() silently fails and
+            // pass 1 opens the same corrupt file again.
+            await new Promise(function (r) { setTimeout(r, 400); });
             try {
               var dir = await navigator.storage.getDirectory();
               await dir.removeEntry(DB_FILE);
               console.log('[Db] removed stale OPFS file — retrying');
-            } catch (_) { /* file didn't exist — nothing to remove */ }
+            } catch (rmErr) {
+              console.warn('[Db] could not remove OPFS file:', rmErr.message || rmErr);
+            }
           }
           await _db.open({
             path:       'opfs://' + DB_FILE,
