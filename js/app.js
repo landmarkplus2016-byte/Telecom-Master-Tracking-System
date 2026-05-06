@@ -170,10 +170,11 @@
 
         Db.loadAllRows(result.rows).then(function () {
           Grid.loadData(result.rows);
+          if (typeof Filters !== 'undefined' && Filters.onDataChanged) Filters.onDataChanged();
           _startBackgroundSync();
           resolve();
         }).catch(function (e) {
-          // DuckDB load failed — still show rows in the grid
+          // DuckDB load failed — still show rows in the grid (search won't work)
           console.warn('[app.js] DuckDB loadAllRows failed:', e.message || e);
           Grid.loadData(result.rows);
           _startBackgroundSync();
@@ -210,6 +211,7 @@
 
         _hide('screen-loading');
         Grid.loadData(rows.concat(pendingNew));
+        if (typeof Filters !== 'undefined' && Filters.onDataChanged) Filters.onDataChanged();
         console.log('[app.js] startup from DuckDB —', rows.length, 'cached rows +',
           pendingNew.length, 'pending new');
 
@@ -272,6 +274,7 @@
 
         return Db.loadAllRows(toApply).then(function () {
           Grid.applyDelta(toApply);
+          if (typeof Filters !== 'undefined' && Filters.onDataChanged) Filters.onDataChanged();
           console.log('[app.js] delta sync applied', toApply.length, 'rows');
           Sync.setLastSyncTime(result.serverTime);
           if (cb) cb();

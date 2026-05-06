@@ -526,19 +526,10 @@ var Grid = (function () {
       _gridApi.setGridOption('rowData', _allData);
     }
 
-    // Background DuckDB store; notify Filters when complete so SQL search can run.
-    if (typeof Db !== 'undefined') {
-      Db.init().then(function () {
-        return Db.loadAllRows(_allData);
-      }).then(function () {
-        // Data is now queryable in DuckDB — re-apply any active search/filters.
-        if (typeof Filters !== 'undefined' && Filters.onDataChanged) {
-          Filters.onDataChanged();
-        }
-      }).catch(function (e) {
-        console.warn('[Grid] DuckDB background load failed:', e.message || e);
-      });
-    }
+    // DuckDB is populated by the caller (app.js) before loadData() is invoked.
+    // Callers call Filters.onDataChanged() directly after their Db.loadAllRows().
+    // Do NOT call Db.loadAllRows here — concurrent transactions on _conn would
+    // cause TransactionContext aborts, especially with large delta syncs.
 
     _updateRowCount(_allData.length);
     console.log('[Grid] loadData() —', _allData.length, 'rows shown (role:', _role + ')');
