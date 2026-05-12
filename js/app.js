@@ -231,7 +231,23 @@
   // Skips rows that have a pending local edit in the queue (offline edits win).
   // cb is optional — called when done.
 
+  var _deltaSyncBusy = false;
+
   function _runDeltaSync(since, cb) {
+    // Guard: skip if a delta sync is already in flight.
+    // The presence heartbeat (manager) and background timer can both fire at once
+    // — without this flag they race into Db.loadAllRows() concurrently which
+    // causes "cannot start a transaction within a transaction" in DuckDB.
+    if (_deltaSyncBusy) {
+      if (cb) cb();
+      return;
+    }
+    _deltaSyncBusy = true;
+    var _origCb = cb;
+    cb = function () {
+      _deltaSyncBusy = false;
+      if (_origCb) _origCb();
+    };
     Sheets.fetchDelta(since, function (result) {
       if (!result.success) {
         console.warn('[app.js] delta sync failed:', result.error);

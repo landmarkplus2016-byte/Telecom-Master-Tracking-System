@@ -36,6 +36,17 @@ var Db = (function () {
   var _opfs       = false;   // true when OPFS persistence is active
   var _duckdbLib  = null;    // cached module reference (avoids re-import on re-init)
   var _initPromise = null;   // in-flight init promise — prevents concurrent double-init
+  // Transaction serializer — chains loadAllRows / loadPriceData calls so only one
+  // transaction is ever active at a time.  Prevents "cannot start a transaction
+  // within a transaction" when the background sync and presence heartbeat both
+  // fire delta syncs simultaneously (manager role).
+  var _txChain    = Promise.resolve();
+
+  function _serialTx(fn) {
+    var p = _txChain.then(fn);
+    _txChain = p.catch(function () {});  // keep chain alive after individual failures
+    return p;
+  }
 
   // ── Schema definition ─────────────────────────────────────
   //
@@ -400,18 +411,19 @@ var Db = (function () {
   async function loadAllRows(rows) {
     _assertReady();
     if (!rows || !rows.length) return;
-
-    await _conn.query('BEGIN');
-    try {
-      for (var i = 0; i < rows.length; i++) {
-        await _upsertRowSQL(rows[i]);
+    return _serialTx(async function () {
+      await _conn.query('BEGIN');
+      try {
+        for (var i = 0; i < rows.length; i++) {
+          await _upsertRowSQL(rows[i]);
+        }
+        await _conn.query('COMMIT');
+        console.log('[Db] loadAllRows() —', rows.length, 'rows');
+      } catch (e) {
+        try { await _conn.query('ROLLBACK'); } catch (_) {}
+        throw e;
       }
-      await _conn.query('COMMIT');
-    } catch (e) {
-      await _conn.query('ROLLBACK');
-      throw e;
-    }
-    console.log('[Db] loadAllRows() —', rows.length, 'rows');
+    });
   }
 
   /**
@@ -732,7 +744,7 @@ var Db = (function () {
   async function loadPriceData(data) {
     _assertReady();
     if (!data) return;
-
+    return _serialTx(async function () {
     await _conn.query('BEGIN');
     try {
       // Clear existing reference data — these are fully reloaded each session
@@ -791,9 +803,10 @@ var Db = (function () {
         '| price entries:', priceList.length, '| splits:', splits.length);
 
     } catch (e) {
-      await _conn.query('ROLLBACK');
+      try { await _conn.query('ROLLBACK'); } catch (_) {}
       throw e;
     }
+    }); // end _serialTx
   }
 
   /**

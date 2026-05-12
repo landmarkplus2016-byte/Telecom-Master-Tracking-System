@@ -18,7 +18,7 @@
 
   /* Header — navy panel */
   --ag-header-background-color:       var(--bg-navy);
-  --ag-header-foreground-color:       var(--text-on-navy);
+  --ag-header-foreground-color:       #ffffff;
   --ag-header-column-separator-color: var(--border-navy);
   --ag-header-column-resize-handle-color: var(--accent);
   --ag-header-column-resize-handle-width: 2px;
@@ -61,11 +61,11 @@
 /* Column header text — uppercase display font */
 .ag-theme-alpine .ag-header-cell-label {
   font-family:    var(--font-display);
-  font-weight:    600;
-  font-size:      11px;
-  letter-spacing: 0.08em;
+  font-weight:    700;
+  font-size:      12px;
+  letter-spacing: 0.06em;
   text-transform: uppercase;
-  color:          var(--text-on-navy);
+  color:          #ffffff;
 }
 
 /* Header filter icon — mute so it doesn't clash with navy */
@@ -210,8 +210,8 @@
 
 .ag-theme-alpine .ag-body-horizontal-scroll-viewport::-webkit-scrollbar,
 .ag-theme-alpine .ag-body-viewport::-webkit-scrollbar {
-  width:  13px;
-  height: 13px;
+  width:  18px;
+  height: 18px;
 }
 
 .ag-theme-alpine .ag-body-horizontal-scroll-viewport::-webkit-scrollbar-track,
@@ -222,9 +222,9 @@
 
 .ag-theme-alpine .ag-body-horizontal-scroll-viewport::-webkit-scrollbar-thumb,
 .ag-theme-alpine .ag-body-viewport::-webkit-scrollbar-thumb {
-  background:    #a0aab8;
-  border:        2px solid #e8ecf0;
-  border-radius: 2px;
+  background:    #8090a8;
+  border:        3px solid #e8ecf0;
+  border-radius: 3px;
 }
 
 .ag-theme-alpine .ag-body-horizontal-scroll-viewport::-webkit-scrollbar-thumb:hover,
